@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+
+# VM images (large binary files — place these locally under SWOS/aoscx/)
+*.ova
+*.vmdk
+*.qcow2
+*.iso
+
+# Claude Code local settings
+.claude/settings.local.json
+
+# Environment variables
+.env
+
+# OS
+.DS_Store

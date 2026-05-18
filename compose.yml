@@ -1,0 +1,16 @@
+services:
+  clabgui:
+    build: .
+    container_name: clabgui
+    privileged: true
+    network_mode: host
+    # ContainerLab がホストのノードコンテナの /proc/<pid>/ns/net を
+    # 参照できるようにホスト PID 名前空間を共有する
+    pid: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/clabgui:/tmp/clabgui
+      - /lib/modules:/lib/modules:ro
+      - ./frontend:/app/frontend
+      - ./backend:/app/backend
+    restart: unless-stopped

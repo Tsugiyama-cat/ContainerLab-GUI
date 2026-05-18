@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ContainerLab GUI</title>
+  <link rel="stylesheet" href="/static/style.css?v=15">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+  <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<div id="header">
+  <h1>&#9656; ContainerLab GUI</h1>
+  <button class="btn btn-primary" id="btn-deploy">Deploy</button>
+  <button class="btn btn-danger"  id="btn-destroy">Destroy</button>
+  <button class="btn btn-ghost"   id="btn-yaml">YAML 確認</button>
+  <button class="btn btn-ghost"   id="btn-save">&#128190; 保存</button>
+  <button class="btn btn-ghost"   id="btn-load">&#128193; 読込</button>
+  <input type="file" id="file-input-topo" accept=".json" style="display:none">
+  <span id="status-badge">未デプロイ</span>
+</div>
+
+<!-- メイン -->
+<div id="main">
+
+  <!-- サイドバー -->
+  <div id="sidebar">
+    <div class="sidebar-section">
+      <h3>テンプレート</h3>
+      <button class="btn btn-ghost" id="btn-templates" style="width:100%">テンプレートを選択...</button>
+    </div>
+    <div class="sidebar-section">
+      <h3>ノードを追加</h3>
+      <div id="node-palette"></div>
+    </div>
+    <div class="sidebar-section">
+      <h3>操作</h3>
+      <div id="action-buttons">
+        <button class="btn btn-ghost" id="btn-connect">&#8644; 接続モード</button>
+        <button class="btn btn-ghost btn-warn" id="btn-delete">&#10005; 選択削除</button>
+        <button class="btn btn-ghost" id="btn-bulk-cmd">&#9178; コマンド投入</button>
+        <button class="btn btn-ghost" id="btn-open-ping">&#9672; ping 確認</button>
+      </div>
+    </div>
+    <div class="sidebar-section" id="deployed-section" style="display:none">
+      <h3>デプロイ済み機器</h3>
+      <div id="deployed-list"></div>
+    </div>
+  </div>
+
+  <!-- キャンバス -->
+  <div id="canvas-wrapper">
+    <div id="network-canvas"></div>
+    <div id="canvas-hint">
+      <div class="hint-icon">&#9707;</div>
+      <p>左のパレットからノードを選択してキャンバスをクリック</p>
+    </div>
+    <div id="mode-indicator"></div>
+  </div>
+
+  <!-- 右詳細パネル -->
+  <div id="detail-panel">
+    <div class="panel-header">詳細情報</div>
+    <div id="detail-content">
+      <p class="dim-text">ノードまたはリンクをクリック</p>
+    </div>
+  </div>
+
+</div>
+
+<!-- ボトムパネル（ログ + CLI タブ） -->
+<div id="bottom-panel">
+  <div id="bottom-resize-handle"></div>
+  <div id="bottom-tabbar">
+    <div class="bottom-tab active" id="tab-btn-log" data-tab="log">ログ</div>
+    <div class="tab-spacer"></div>
+    <button class="btn-tab-action" id="btn-clear-log">クリア</button>
+  </div>
+  <div id="bottom-content">
+    <div id="tab-pane-log" class="tab-pane active">
+      <div id="log-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- コンテキストメニュー -->
+<div id="context-menu">
+  <ul>
+    <li id="ctx-cli">&#9654; CLI を開く</li>
+    <li id="ctx-edit">&#9998; ノード編集</li>
+    <li class="separator"></li>
+    <li id="ctx-delete" class="danger">&#10005; 削除</li>
+  </ul>
+</div>
+
+<!-- ノード追加モーダル -->
+<div class="modal-overlay" id="modal-add">
+  <div class="modal-box">
+    <h3 id="modal-add-title">ノードを追加</h3>
+    <div class="form-group">
+      <label>ノード名</label>
+      <input type="text" id="input-node-name" placeholder="空欄で自動生成">
+    </div>
+    <div class="form-group">
+      <label>イメージ <span style="color:var(--danger)">*必須</span></label>
+      <input type="text" id="input-node-image" placeholder="docker images で確認してください">
+      <div class="hint" id="input-node-image-hint"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost"   id="btn-add-cancel">キャンセル</button>
+      <button class="btn btn-primary" id="btn-add-confirm">追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- ノード編集モーダル -->
+<div class="modal-overlay" id="modal-edit">
+  <div class="modal-box">
+    <h3>ノード編集</h3>
+    <div class="form-group">
+      <label>ノード名</label>
+      <input type="text" id="edit-node-name">
+    </div>
+    <div class="form-group">
+      <label>イメージ</label>
+      <input type="text" id="edit-node-image">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost"   id="btn-edit-cancel">キャンセル</button>
+      <button class="btn btn-primary" id="btn-edit-confirm">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- YAML モーダル -->
+<div class="modal-overlay" id="modal-yaml">
+  <div class="modal-box wide">
+    <h3>生成トポロジー YAML</h3>
+    <pre id="yaml-content"></pre>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" id="btn-yaml-close">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- リンク作成モーダル -->
+<div class="modal-overlay" id="modal-link">
+  <div class="modal-box">
+    <h3>接続ポートを選択</h3>
+    <div class="form-group">
+      <label id="link-src-label">ノードA</label>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+        <code id="link-src-prefix" style="color:var(--text-dim)"></code>
+        <input type="number" id="link-src-port" min="0" style="width:72px">
+      </div>
+    </div>
+    <div class="form-group">
+      <label id="link-tgt-label">ノードB</label>
+      <div style="display:flex;align-items:center;gap:6px;margin-top:4px">
+        <code id="link-tgt-prefix" style="color:var(--text-dim)"></code>
+        <input type="number" id="link-tgt-port" min="0" style="width:72px">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost"   id="btn-link-cancel">キャンセル</button>
+      <button class="btn btn-primary" id="btn-link-confirm">接続</button>
+    </div>
+  </div>
+</div>
+
+<!-- コマンド一括投入モーダル -->
+<div class="modal-overlay" id="modal-bulk-cmd">
+  <div class="modal-box wide">
+    <h3>コマンド一括投入</h3>
+    <div class="form-group">
+      <label>ノード選択</label>
+      <div id="bulk-node-list" class="node-check-grid"></div>
+    </div>
+    <div class="form-group">
+      <label>コマンド</label>
+      <input type="text" id="bulk-cmd-input" placeholder="例: show version">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost"   id="btn-bulk-cancel">キャンセル</button>
+      <button class="btn btn-primary" id="btn-bulk-exec">実行</button>
+    </div>
+    <div id="bulk-results" style="display:none">
+      <div class="detail-divider"></div>
+      <div class="bulk-result-toolbar">
+        <span class="cfg-subtitle" style="margin:0">実行結果</span>
+        <div class="bulk-view-toggle">
+          <button class="bulk-view-btn active" id="btn-view-result">表示結果</button>
+          <button class="bulk-view-btn" id="btn-view-diff">Diff</button>
+        </div>
+      </div>
+      <div id="bulk-results-content"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ping 確認モーダル -->
+<div class="modal-overlay" id="modal-ping">
+  <div class="modal-box wide">
+    <h3>ping 疎通確認</h3>
+    <div class="form-group">
+      <label>送信元ノード</label>
+      <select id="ping-src-select" class="form-select"></select>
+    </div>
+    <div class="form-group">
+      <label>宛先 IP アドレス</label>
+      <input type="text" id="ping-target-ip" placeholder="例: 192.168.1.1">
+    </div>
+    <div class="form-group" style="display:flex;align-items:center;gap:10px">
+      <label style="margin:0;white-space:nowrap">回数</label>
+      <input type="number" id="ping-count" value="5" min="1" max="100" style="width:72px">
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost"   id="btn-ping-cancel">キャンセル</button>
+      <button class="btn btn-primary" id="btn-ping-exec">実行</button>
+    </div>
+    <div id="ping-result" style="display:none">
+      <div class="detail-divider"></div>
+      <div class="cfg-subtitle" id="ping-cmd-label"></div>
+      <pre id="ping-output" class="result-pre"></pre>
+    </div>
+  </div>
+</div>
+
+<!-- テンプレートブラウザモーダル -->
+<div class="modal-overlay" id="modal-templates">
+  <div class="modal-box tpl-browser-box">
+    <!-- リストビュー -->
+    <div id="tpl-list-view">
+      <h3>テンプレートを選択</h3>
+      <div id="tpl-card-grid"></div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" id="btn-tpl-close">閉じる</button>
+      </div>
+    </div>
+    <!-- 詳細ビュー -->
+    <div id="tpl-detail-view" style="display:none">
+      <div class="tpl-detail-header">
+        <button class="btn btn-ghost btn-sm" id="btn-tpl-back">&#8592; 戻る</button>
+        <h3 id="tpl-detail-name"></h3>
+      </div>
+      <div class="tpl-detail-body">
+        <div id="tpl-topo-canvas" class="tpl-topo-preview"></div>
+        <div class="tpl-detail-info">
+          <p class="tpl-desc" id="tpl-detail-desc"></p>
+          <div class="tpl-section-title">検証ポイント</div>
+          <ul class="tpl-verify-list" id="tpl-verify-list"></ul>
+          <div class="tpl-section-title">テストコマンド</div>
+          <div id="tpl-cmd-blocks"></div>
+          <div class="modal-footer" style="margin-top:16px;padding:0">
+            <button class="btn btn-ghost" id="btn-tpl-detail-close">閉じる</button>
+            <button class="btn btn-primary" id="btn-tpl-load">ロード</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/app.js?v=15"></script>
+</body>
+</html>

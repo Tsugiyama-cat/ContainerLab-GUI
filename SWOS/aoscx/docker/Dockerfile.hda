@@ -1,0 +1,2 @@
+FROM vrnetlab/aruba_arubaos-cx:10.16.1006
+COPY hda.qcow2 /hda.qcow2
