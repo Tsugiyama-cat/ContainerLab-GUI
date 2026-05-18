@@ -9,8 +9,8 @@
 
 | ノード | イメージ |
 |---|---|
-| Aruba AOS-CX | `vrnetlab/aruba_arubaos-cx:10.16.1006-fixed` |
-| Juniper vJunos-Switch | `vrnetlab/juniper_vjunosswitch:25.4R1.12` |
+| Aruba AOS-CX | `clabgui/aruba_arubaos-cx:10.16.1006` |
+| Juniper vJunos-Switch | `clabgui/juniper_vjunosswitch:25.4R1.12` |
 
 ---
 
@@ -40,8 +40,9 @@ OVA / VMDK / OVF などのベンダーイメージはライセンスの関係上
 3. Dockerイメージをビルド:
 
 ```bash
-cd SWOS/aoscx
-make docker-image
+cd SWOS/aoscx/docker
+make
+# → clabgui/aruba_arubaos-cx:<バージョン> としてビルドされます
 ```
 
 ### Juniper vJunos-Switch

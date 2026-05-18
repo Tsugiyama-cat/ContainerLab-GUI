@@ -13,8 +13,8 @@ NODE_TYPES = {
     "aruba_aoscx": {
         "name": "Aruba AOSCX",
         "kind": "aruba_aoscx",
-        "default_image": "vrnetlab/aruba_arubaos-cx:10.16.1006-fixed",
-        "image_hint": "例: vrnetlab/aruba_arubaos-cx:10.16.1006-fixed",
+        "default_image": "clabgui/aruba_arubaos-cx:10.16.1006",
+        "image_hint": "例: clabgui/aruba_arubaos-cx:10.16.1006",
         "ssh_user": os.environ.get("AOSCX_SSH_USER", "admin"),
         "ssh_pass": os.environ.get("AOSCX_SSH_PASS", "admin"),
         "ssh_port": 22,
@@ -27,8 +27,8 @@ NODE_TYPES = {
     "juniper_vjunosswitch": {
         "name": "Juniper vJunos-Switch",
         "kind": "juniper_vjunosswitch",
-        "default_image": "vrnetlab/juniper_vjunosswitch:25.4R1.12",
-        "image_hint": "例: vrnetlab/juniper_vjunosswitch:25.4R1.12",
+        "default_image": "clabgui/juniper_vjunosswitch:25.4R1.12",
+        "image_hint": "例: clabgui/juniper_vjunosswitch:25.4R1.12",
         "ssh_user": os.environ.get("VJUNOS_SSH_USER", "admin"),
         "ssh_pass": os.environ.get("VJUNOS_SSH_PASS", "admin@123"),
         "ssh_port": 22,
