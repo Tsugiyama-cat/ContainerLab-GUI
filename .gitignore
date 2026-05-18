@@ -6,8 +6,10 @@ __pycache__/
 venv/
 
 # VM images (large binary files — place these locally under SWOS/aoscx/)
+# See README.md for download links
 *.ova
 *.vmdk
+*.ovf
 *.qcow2
 *.iso
 
