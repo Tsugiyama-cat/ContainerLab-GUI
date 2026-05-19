@@ -481,18 +481,28 @@ ip route 0.0.0.0/0 10.10.10.254
 """,
         },
         # VSX In-Sync 確認後に自動投入する MCLAG 設定
+        # vsx-sync 適用後に shutdown/no shutdown でLACPをリセットし、
+        # 両spineが同時にVSX MACでLACPネゴシエーションを開始できるようにする
         "mclag_configs": {
             "spine1": """\
 interface lag 10
     vsx-sync
+    shutdown
+    no shutdown
 interface lag 20
     vsx-sync
+    shutdown
+    no shutdown
 """,
             "spine2": """\
 interface lag 10
     vsx-sync
+    shutdown
+    no shutdown
 interface lag 20
     vsx-sync
+    shutdown
+    no shutdown
 """,
         },
         "verification": [
