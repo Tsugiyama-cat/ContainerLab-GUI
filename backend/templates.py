@@ -228,6 +228,288 @@ router bgp 65002
             ],
         },
     },
+    # ── VSX ペア ──────────────────────────────────────────────────────────────
+    {
+        "id": "vsx_pair",
+        "name": "VSX ペア",
+        "description": (
+            "2台の AOS-CX が VSX ペアを形成する構成。"
+            "ISL: 1/1/2-1/1/3 (LAG1)、Keepalive: 1/1/4 (192.168.255.0/30)"
+        ),
+        "nodes": [
+            {"name": "vsx1", "node_type": "aruba_aoscx"},
+            {"name": "vsx2", "node_type": "aruba_aoscx"},
+        ],
+        "links": [
+            {"source": "vsx1", "source_port": 2, "target": "vsx2", "target_port": 2},
+            {"source": "vsx1", "source_port": 3, "target": "vsx2", "target_port": 3},
+            {"source": "vsx1", "source_port": 4, "target": "vsx2", "target_port": 4},
+        ],
+        "configs": {
+            "vsx1": """\
+ip routing
+interface lag 1
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed all
+    lacp mode active
+interface 1/1/2
+    no shutdown
+    lag 1
+interface 1/1/3
+    no shutdown
+    lag 1
+interface 1/1/4
+    no shutdown
+    ip address 192.168.255.1/30
+vsx
+    system-mac 02:00:00:00:00:01
+    inter-switch-link lag 1
+    keepalive peer 192.168.255.2 source 192.168.255.1
+    role primary
+""",
+            "vsx2": """\
+ip routing
+interface lag 1
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed all
+    lacp mode active
+interface 1/1/2
+    no shutdown
+    lag 1
+interface 1/1/3
+    no shutdown
+    lag 1
+interface 1/1/4
+    no shutdown
+    ip address 192.168.255.2/30
+vsx
+    system-mac 02:00:00:00:00:01
+    inter-switch-link lag 1
+    keepalive peer 192.168.255.1 source 192.168.255.2
+    role secondary
+""",
+        },
+        "verification": [
+            "vsx1/vsx2 で VSX セッションが Established になること",
+            "show vsx status で ISL が up、keepalive が Rx/Tx されること",
+        ],
+        "test_commands": {
+            "vsx1": [
+                "show vsx status",
+                "show lacp interfaces lag 1",
+                "show interface 1/1/4",
+            ],
+            "vsx2": [
+                "show vsx status",
+                "show lacp interfaces lag 1",
+            ],
+        },
+    },
+    # ── VSX Spine-Leaf ─────────────────────────────────────────────────────────
+    {
+        "id": "vsx_spine_leaf",
+        "name": "VSX Spine-Leaf",
+        "description": (
+            "VSX ペア (spine1/spine2) をスパインとした Spine-Leaf 4台構成。"
+            "ISL: 1/1/2-1/1/3、Keepalive: 1/1/4、"
+            "Leaf へは VSX LAG (MCLAG) でデュアルホーム接続。VLAN10 (10.10.10.0/24)"
+        ),
+        "nodes": [
+            {"name": "spine1", "node_type": "aruba_aoscx"},
+            {"name": "spine2", "node_type": "aruba_aoscx"},
+            {"name": "leaf1",  "node_type": "aruba_aoscx"},
+            {"name": "leaf2",  "node_type": "aruba_aoscx"},
+        ],
+        "links": [
+            # VSX ISL / Keepalive
+            {"source": "spine1", "source_port": 2, "target": "spine2", "target_port": 2},
+            {"source": "spine1", "source_port": 3, "target": "spine2", "target_port": 3},
+            {"source": "spine1", "source_port": 4, "target": "spine2", "target_port": 4},
+            # MCLAG uplink: leaf1 → spine1/spine2
+            {"source": "spine1", "source_port": 5, "target": "leaf1", "target_port": 2},
+            {"source": "spine2", "source_port": 5, "target": "leaf1", "target_port": 3},
+            # MCLAG uplink: leaf2 → spine1/spine2
+            {"source": "spine1", "source_port": 6, "target": "leaf2", "target_port": 2},
+            {"source": "spine2", "source_port": 6, "target": "leaf2", "target_port": 3},
+        ],
+        "configs": {
+            "spine1": """\
+ip routing
+vlan 10
+    name VLAN10
+interface lag 1
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed all
+    lacp mode active
+interface 1/1/2
+    no shutdown
+    lag 1
+interface 1/1/3
+    no shutdown
+    lag 1
+interface 1/1/4
+    no shutdown
+    ip address 192.168.255.1/30
+vsx
+    system-mac 02:00:00:00:00:01
+    inter-switch-link lag 1
+    keepalive peer 192.168.255.2 source 192.168.255.1
+    role primary
+interface lag 10
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+    vsx-sync
+interface 1/1/5
+    no shutdown
+    lag 10
+interface lag 20
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+    vsx-sync
+interface 1/1/6
+    no shutdown
+    lag 20
+interface vlan 10
+    ip address 10.10.10.252/24
+    no shutdown
+    active-gateway ip mac 02:00:00:00:00:0a
+    active-gateway ip 10.10.10.254
+""",
+            "spine2": """\
+ip routing
+vlan 10
+    name VLAN10
+interface lag 1
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed all
+    lacp mode active
+interface 1/1/2
+    no shutdown
+    lag 1
+interface 1/1/3
+    no shutdown
+    lag 1
+interface 1/1/4
+    no shutdown
+    ip address 192.168.255.2/30
+vsx
+    system-mac 02:00:00:00:00:01
+    inter-switch-link lag 1
+    keepalive peer 192.168.255.1 source 192.168.255.2
+    role secondary
+interface lag 10
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+    vsx-sync
+interface 1/1/5
+    no shutdown
+    lag 10
+interface lag 20
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+    vsx-sync
+interface 1/1/6
+    no shutdown
+    lag 20
+interface vlan 10
+    ip address 10.10.10.253/24
+    no shutdown
+    active-gateway ip mac 02:00:00:00:00:0a
+    active-gateway ip 10.10.10.254
+""",
+            "leaf1": """\
+ip routing
+vlan 10
+    name VLAN10
+interface lag 1
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+interface 1/1/2
+    no shutdown
+    lag 1
+interface 1/1/3
+    no shutdown
+    lag 1
+interface vlan 10
+    ip address 10.10.10.1/24
+    no shutdown
+ip route 0.0.0.0/0 10.10.10.254
+""",
+            "leaf2": """\
+ip routing
+vlan 10
+    name VLAN10
+interface lag 1
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+interface 1/1/2
+    no shutdown
+    lag 1
+interface 1/1/3
+    no shutdown
+    lag 1
+interface vlan 10
+    ip address 10.10.10.2/24
+    no shutdown
+ip route 0.0.0.0/0 10.10.10.254
+""",
+        },
+        "verification": [
+            "spine1/spine2 で VSX セッションが Established になること",
+            "leaf1/leaf2 で LAG1 が LACP Established になること (dual-home 確認)",
+            "leaf1 → leaf2 へ ping 10.10.10.2 が通ること",
+            "Anycast gateway (10.10.10.254) へ leaf1/leaf2 から ping が通ること",
+        ],
+        "test_commands": {
+            "spine1": [
+                "show vsx status",
+                "show lacp interfaces lag 10",
+                "show lacp interfaces lag 20",
+                "show vlan 10",
+            ],
+            "spine2": [
+                "show vsx status",
+                "show lacp interfaces lag 10",
+                "show lacp interfaces lag 20",
+            ],
+            "leaf1": [
+                "show lacp interfaces lag 1",
+                "show interface vlan 10",
+                "ping 10.10.10.2 repetitions 5",
+                "ping 10.10.10.254 repetitions 5",
+            ],
+            "leaf2": [
+                "show lacp interfaces lag 1",
+                "ping 10.10.10.1 repetitions 5",
+            ],
+        },
+    },
     # ── EVPN-VXLAN (Spine-Leaf) ────────────────────────────────────────────────
     {
         "id": "evpn_vxlan",
