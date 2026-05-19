@@ -24,20 +24,7 @@ NODE_TYPES = {
         "iface_fmt": "1/1/{n}",
         "iface_start": 2,
     },
-    "juniper_vjunosswitch": {
-        "name": "Juniper vJunos-Switch",
-        "kind": "juniper_vjunosswitch",
-        "default_image": "clabgui/juniper_vjunosswitch:25.4R1.12",
-        "image_hint": "例: clabgui/juniper_vjunosswitch:25.4R1.12",
-        "ssh_user": os.environ.get("VJUNOS_SSH_USER", "admin"),
-        "ssh_pass": os.environ.get("VJUNOS_SSH_PASS", "admin@123"),
-        "ssh_port": 22,
-        "color": "#84BD00",
-        "label_color": "#ffffff",
-        # Junos vJunos-switch は ge-0/0/X
-        "iface_fmt": "ge-0/0/{n}",
-        "iface_start": 0,
-    },
+
 }
 
 LAB_NAME = "clabgui"

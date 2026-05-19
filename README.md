@@ -10,7 +10,10 @@
 | ノード | イメージ |
 |---|---|
 | Aruba AOS-CX | `clabgui/aruba_arubaos-cx:10.16.1006` |
-| Juniper vJunos-Switch | `clabgui/juniper_vjunosswitch:25.4R1.12` |
+
+> **Juniper vJunos-Switch について**  
+> ネスト仮想化の制約により VM 環境では動作しません。  
+> ベアメタル Linux / Intel Mac 環境向けに [`feature/vjunos`](https://github.com/Tsugiyama-cat/ContainerLab-GUI/tree/feature/vjunos) ブランチで提供しています。
 
 ---
 
@@ -44,11 +47,6 @@ cd SWOS/aoscx/docker
 make
 # → clabgui/aruba_arubaos-cx:<バージョン> としてビルドされます
 ```
-
-### Juniper vJunos-Switch
-
-1. [Juniper Software Download](https://support.juniper.net/support/downloads/) から `vJunos-switch` の `.qcow2` をダウンロード
-2. vrnetlab の Juniper ディレクトリに配置してビルド
 
 > **注意:** これらのイメージファイル（`.ova` / `.vmdk` / `.ovf` / `.qcow2`）は `.gitignore` により Git 管理対象外です。ローカルにのみ保存してください。
 
