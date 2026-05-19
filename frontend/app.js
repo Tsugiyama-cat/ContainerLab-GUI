@@ -997,14 +997,13 @@ function enterBroadcastMode(nodeNames) {
   $('broadcast-modal-title').textContent = `一括入力 — ${nodeNames.length} 台: ${nodeNames.join(', ')}`;
   $('modal-broadcast-view').classList.add('visible');
 
-  // DOM レンダリング後にターミナルを初期化
-  requestAnimationFrame(() => {
+  // レイアウトが確定してからターミナルを全台まとめて初期化
+  setTimeout(() => {
     for (const { nodeName, sshPort, col, inner } of colDefs) {
       const term     = _makeBroadcastTerm();
       const fitAddon = new FitAddon.FitAddon();
       term.loadAddon(fitAddon);
       term.open(inner);
-      fitAddon.fit();
 
       const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       const ws = new WebSocket(
@@ -1033,7 +1032,12 @@ function enterBroadcastMode(nodeNames) {
 
       _broadcastPopupSessions.push({ term, fitAddon, ws, nodeName });
     }
-  });
+
+    // 全台 open 後にまとめて fit（各端末の幅が確定した状態で計算させる）
+    requestAnimationFrame(() => {
+      for (const s of _broadcastPopupSessions) s.fitAddon.fit();
+    });
+  }, 50);
 
   _updateBroadcastBtn();
   log(`一括入力 ON — ${nodeNames.length} 台: ${nodeNames.join(', ')}`, 'warn');
