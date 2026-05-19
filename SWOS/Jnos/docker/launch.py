@@ -122,44 +122,51 @@ class VJUNOSSWITCH_vm(vrnetlab.VM):
         subprocess.run(["./make-config.sh", "juniper.conf", "config.img"], check=True)
 
     def bootstrap_spin(self):
-        """This function should be called periodically to do work."""
-        if self.spins > 300:
-            # too many spins with no result ->  give up
-            self.stop()
-            self.start()
-            return
+        """This function should be called periodically to do work.
 
-        # lets wait for the OS/platform log to determine if VM is booted,
-        # login prompt can get lost in boot logs
-        (ridx, match, res) = self.tn.expect([b"FreeBSD/amd64"], 1)
-        if match:  # got a match!
-            if ridx == 0:  # login
-                self.logger.info("VM started")
+        vJunos-switch 23.x+ uses Wind River Linux as the outer VM, so the
+        serial console never shows a 'FreeBSD/amd64' login prompt.
+        Instead, we poll SSH availability via QEMU's hostfwd (127.0.0.1:22).
+        We also avoid the 300-spin restart because Junos takes ~15 minutes to boot.
+        """
+        import socket
 
-                # Login
-                self.wait_write("\r", None)
-                self.wait_write("admin", wait="login:")
-                self.wait_write(self.password, wait="Password:")
-                self.wait_write("\r", None)
-                self.logger.info("Login completed")
-
-                # close telnet connection
-                self.tn.close()
-                # startup time?
+        # Primary detection: SSH availability via QEMU hostfwd
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(1)
+            result = sock.connect_ex(("127.0.0.1", 22))
+            sock.close()
+            if result == 0:
+                self.logger.info("VM started (SSH port is open)")
+                try:
+                    self.tn.close()
+                except Exception:
+                    pass
                 startup_time = datetime.datetime.now() - self.start_time
                 self.logger.info("Startup complete in: %s" % startup_time)
-                # mark as running
                 self.running = True
                 return
+        except Exception:
+            pass
 
-        # no match, if we saw some output from the router it's probably
-        # booting, so let's give it some more time
-        if res != b"":
-            self.logger.trace("OUTPUT: %s" % res.decode())
-            # reset spins if we saw some output
-            self.spins = 0
+        # Drain serial console output to keep logs informative
+        try:
+            (ridx, match, res) = self.tn.expect(
+                [b"FreeBSD/amd64", b"Wind River Linux", b"login:"], 1
+            )
+            if res:
+                self.logger.trace("OUTPUT: %s" % res.decode("utf-8", errors="replace"))
+                self.spins = 0
+        except Exception:
+            pass
 
         self.spins += 1
+
+        # vJunos takes up to 15+ minutes - reset instead of restarting
+        if self.spins > 300:
+            self.spins = 0
+            self.logger.info("Still waiting for vJunos SSH... (boot can take ~15 min)")
 
         return
 

@@ -34,6 +34,7 @@ COPY vrnetlab.py healthcheck.py /
 ARG IMAGE=vJunos-switch-25.4R1.12.qcow2
 COPY ${IMAGE}* /
 COPY init.conf make-config.sh /
+RUN chmod +x /make-config.sh
 COPY *.py /
 
 HEALTHCHECK CMD ["uv", "run", "/healthcheck.py"]

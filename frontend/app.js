@@ -757,6 +757,7 @@ function startPolling() {
       stopPolling();
       if (state.pendingConfigPush) {
         state.pendingConfigPush = false;
+        log('テンプレートコンフィグを SSH で投入中...', 'info');
         applyConfigsWithRetry();  // fire-and-forget: VM 起動完了まで自動リトライ
       }
     }
@@ -782,7 +783,9 @@ async function applyConfigsWithRetry() {
         else log(`コンフィグ投入完了 [${name}]`, 'ok');
       }
       if (!hasError) {
-        log('全ノードへのコンフィグ投入が完了しました', 'ok');
+        log('─────────────────────────────', 'info');
+        log('構築完了 — 全ノードへのコンフィグ投入が完了しました', 'ok');
+        log('─────────────────────────────', 'info');
         return;
       }
     } catch (e) {
