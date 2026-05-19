@@ -341,6 +341,8 @@ vsx
 ip routing
 vlan 10
     name VLAN10
+vlan 20
+    name VLAN20
 interface lag 1
     no shutdown
     no routing
@@ -370,11 +372,14 @@ interface vlan 10
     no shutdown
     active-gateway ip mac 02:00:00:00:00:0a
     active-gateway ip 10.10.10.254
+ip route 10.10.20.0/24 192.168.255.2
 """,
             "spine2": """\
 ip routing
 vlan 10
     name VLAN10
+vlan 20
+    name VLAN20
 interface lag 1
     no shutdown
     no routing
@@ -398,12 +403,13 @@ vsx
 interface 1/1/5
     no shutdown
     no routing
-    vlan access 10
-interface vlan 10
-    ip address 10.10.10.253/24
+    vlan access 20
+interface vlan 20
+    ip address 10.10.20.253/24
     no shutdown
-    active-gateway ip mac 02:00:00:00:00:0a
-    active-gateway ip 10.10.10.254
+    active-gateway ip mac 02:00:00:00:00:0b
+    active-gateway ip 10.10.20.254
+ip route 10.10.10.0/24 192.168.255.1
 """,
             "leaf1": """\
 ip routing
@@ -420,40 +426,42 @@ ip route 0.0.0.0/0 10.10.10.254
 """,
             "leaf2": """\
 ip routing
-vlan 10
-    name VLAN10
+vlan 20
+    name VLAN20
 interface 1/1/2
     no shutdown
     no routing
-    vlan access 10
-interface vlan 10
-    ip address 10.10.10.2/24
+    vlan access 20
+interface vlan 20
+    ip address 10.10.20.2/24
     no shutdown
-ip route 0.0.0.0/0 10.10.10.254
+ip route 0.0.0.0/0 10.10.20.254
 """,
         },
         "verification": [
             "spine1/spine2 で VSX セッションが Established になること",
-            "leaf1 → leaf2 へ ping 10.10.10.2 が通ること (VSX ISL 経由)",
-            "Anycast gateway (10.10.10.254) へ leaf1/leaf2 から ping が通ること",
+            "leaf1 (VLAN10:10.10.10.1) → leaf2 (VLAN20:10.10.20.2) の L3 ping が通ること",
+            "経路: leaf1→spine1→Keepaliveリンク→spine2→leaf2",
         ],
         "test_commands": {
             "spine1": [
                 "show vsx status",
-                "show vlan 10",
+                "show ip route",
                 "show interface 1/1/5",
             ],
             "spine2": [
                 "show vsx status",
+                "show ip route",
                 "show interface 1/1/5",
             ],
             "leaf1": [
                 "show interface vlan 10",
-                "ping 10.10.10.2 repetitions 5",
-                "ping 10.10.10.254 repetitions 5",
+                "ping 10.10.10.254 repetitions 3",
+                "ping 10.10.20.2 repetitions 5",
             ],
             "leaf2": [
-                "show interface vlan 10",
+                "show interface vlan 20",
+                "ping 10.10.20.254 repetitions 3",
                 "ping 10.10.10.1 repetitions 5",
             ],
         },
