@@ -394,7 +394,9 @@ interface vlan 10
     active-gateway ip mac 02:00:00:00:00:0a
     active-gateway ip 10.10.10.254
 """,
-            # spine2 (secondary): multi-chassis LAGはno shutのみ、設定はConfig Syncで伝播
+            # spine2 (secondary): lag10/lag20 は spine1 と同じ完全な設定を記述
+            # (Config Sync が不完全な場合の保険 — vlan trunk など VLAN 設定が
+            #  "vlan access 1" デフォルトになってしまい ISL 協調が失敗する問題を回避)
             "spine2": """\
 ip routing
 vlan 10
@@ -421,11 +423,19 @@ vsx
     role secondary
 interface lag 10 multi-chassis
     no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
 interface 1/1/5
     no shutdown
     lag 10
 interface lag 20 multi-chassis
     no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
 interface 1/1/6
     no shutdown
     lag 20

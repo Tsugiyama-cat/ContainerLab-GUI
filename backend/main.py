@@ -139,8 +139,8 @@ async def _vsx_mclag_background():
 
     # Phase2: spine の LACP 安定化を待ってから leaf ポートをshut/no shut
     if lab.mclag_leaf_configs:
-        lab.mclag_status = "Phase1 完了 → 15秒待機後に Phase2: leaf ポートをshut/no shut..."
-        await asyncio.sleep(15)
+        lab.mclag_status = "Phase1 完了 → 175秒待機中 (VSX secondary linkup-delay-timer)... Phase2: leaf ポートをshut/no shut"
+        await asyncio.sleep(175)
 
         if not lab.deployed:
             return
