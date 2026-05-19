@@ -110,11 +110,9 @@ async def _vsx_mclag_background():
         lab.mclag_status = "VSX In-Sync 待機タイムアウト (5分)"
         return
 
-    lab.mclag_status = "VSX In-Sync 確認 → MCLAG (vsx-sync) 設定を全ノードへ同時投入中..."
+    lab.mclag_status = "VSX In-Sync 確認 → Phase1: spine multi-chassis LAG ポート再割り当て中..."
     await asyncio.sleep(10)  # VSX 安定化のため追加待機
 
-    # spine1/spine2 に同時並列投入 — 順番にやると片側だけ LACP 確立して
-    # もう片側が "Disabled by LACP or LAG" になるため
     async def _push_node(node_name: str, config: str) -> tuple[str, bool]:
         info = lab.get_ssh_info(node_name)
         if not info or not info.get("mgmt_ip"):
@@ -122,6 +120,7 @@ async def _vsx_mclag_background():
         ok = await _ssh_push_config(info, config)
         return node_name, ok
 
+    # Phase1: spine1/spine2 に同時並列でポート再割り当て (シミュレータLACPワークアラウンド)
     results = await asyncio.gather(
         *[_push_node(n, c) for n, c in lab.mclag_configs.items()],
         return_exceptions=True,
@@ -135,9 +134,33 @@ async def _vsx_mclag_background():
             failed.append(r[0])
 
     if failed:
-        lab.mclag_status = f"MCLAG 設定投入失敗: {', '.join(failed)} — ログインして手動確認してください"
-    else:
-        lab.mclag_status = "MCLAG (vsx-sync) 設定投入完了 — LAG が up になるまで数十秒かかります"
+        lab.mclag_status = f"MCLAG Phase1 失敗: {', '.join(failed)} — ログインして手動確認してください"
+        return
+
+    # Phase2: spine の LACP 安定化を待ってから leaf ポートをshut/no shut
+    if lab.mclag_leaf_configs:
+        lab.mclag_status = "Phase1 完了 → 15秒待機後に Phase2: leaf ポートをshut/no shut..."
+        await asyncio.sleep(15)
+
+        if not lab.deployed:
+            return
+
+        results2 = await asyncio.gather(
+            *[_push_node(n, c) for n, c in lab.mclag_leaf_configs.items()],
+            return_exceptions=True,
+        )
+        failed2 = []
+        for r in results2:
+            if isinstance(r, Exception):
+                failed2.append("(例外)")
+            elif not r[1]:
+                failed2.append(r[0])
+
+        if failed2:
+            lab.mclag_status = f"MCLAG Phase2 失敗: {', '.join(failed2)}"
+            return
+
+    lab.mclag_status = "MCLAG 設定投入完了 — lag10/lag20 が UP になるまで数十秒かかります"
 
 
 # ── 静的ページ ────────────────────────────────────────────────
@@ -623,9 +646,10 @@ async def load_template(template_id: str):
             "links":   links,
             "configs": tmpl.get("configs", {}),
         })
-        lab.mclag_configs = tmpl.get("mclag_configs", {})
-        lab.vsx_primary   = tmpl.get("vsx_primary", "")
-        lab.mclag_status  = ""
+        lab.mclag_configs      = tmpl.get("mclag_configs", {})
+        lab.mclag_leaf_configs = tmpl.get("mclag_leaf_configs", {})
+        lab.vsx_primary        = tmpl.get("vsx_primary", "")
+        lab.mclag_status       = ""
         return lab.to_dict()
     except ValueError as e:
         raise HTTPException(400, str(e))

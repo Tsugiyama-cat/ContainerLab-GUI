@@ -310,15 +310,18 @@ vsx
         },
     },
     # ── VSX Spine-Leaf (MCLAG) ────────────────────────────────────────────────
-    # vsx-sync は VSX 確立後でないと動作しないため、startup-config では LAG のみ設定し、
-    # デプロイ後に VSX In-Sync を確認してから mclag_configs を SSH で自動投入する。
+    # AOS-CX シミュレータの制約: startup-config に multi-chassis LAG があると
+    # 再起動後に LACP が正常動作しない。
+    # ワークアラウンド (Lab Guide p.2): VSX In-Sync 後に
+    #   spines: ポートをLAGから外す→shut→no shut→再割り当て
+    #   leaves: lag接続ポートをshut/no shut
     {
         "id": "vsx_spine_leaf",
         "name": "VSX Spine-Leaf (MCLAG)",
         "description": (
             "VSX ペア (spine1/spine2) をスパインとした MCLAG Spine-Leaf 4台構成。"
-            "leaf1/leaf2 は spine1/spine2 にデュアルホーム (VSX LAG)。"
-            "VSX In-Sync 確認後に vsx-sync を自動投入。VLAN10 (10.10.10.0/24)"
+            "leaf1/leaf2 は spine1/spine2 にデュアルホーム (VSX LAG: multi-chassis)。"
+            "VSX In-Sync 確認後にシミュレータLACPワークアラウンドを自動実行。VLAN10 (10.10.10.0/24)"
         ),
         "vsx_primary": "spine1",
         "nodes": [
@@ -341,6 +344,7 @@ vsx
             {"source": "spine2", "source_port": 6, "target": "leaf2", "target_port": 3},
         ],
         "configs": {
+            # spine1 (primary): multi-chassis + vsx-sync mclag-interfaces でConfig Sync有効化
             "spine1": """\
 ip routing
 vlan 10
@@ -365,7 +369,8 @@ vsx
     inter-switch-link lag 1
     keepalive peer 192.168.255.2 source 192.168.255.1
     role primary
-interface lag 10
+    vsx-sync mclag-interfaces vsx-global
+interface lag 10 multi-chassis
     no shutdown
     no routing
     vlan trunk native 1
@@ -374,7 +379,7 @@ interface lag 10
 interface 1/1/5
     no shutdown
     lag 10
-interface lag 20
+interface lag 20 multi-chassis
     no shutdown
     no routing
     vlan trunk native 1
@@ -389,6 +394,7 @@ interface vlan 10
     active-gateway ip mac 02:00:00:00:00:0a
     active-gateway ip 10.10.10.254
 """,
+            # spine2 (secondary): multi-chassis LAGはno shutのみ、設定はConfig Syncで伝播
             "spine2": """\
 ip routing
 vlan 10
@@ -413,21 +419,13 @@ vsx
     inter-switch-link lag 1
     keepalive peer 192.168.255.1 source 192.168.255.2
     role secondary
-interface lag 10
+interface lag 10 multi-chassis
     no shutdown
-    no routing
-    vlan trunk native 1
-    vlan trunk allowed 10
-    lacp mode active
 interface 1/1/5
     no shutdown
     lag 10
-interface lag 20
+interface lag 20 multi-chassis
     no shutdown
-    no routing
-    vlan trunk native 1
-    vlan trunk allowed 10
-    lacp mode active
 interface 1/1/6
     no shutdown
     lag 20
@@ -480,46 +478,71 @@ interface vlan 10
 ip route 0.0.0.0/0 10.10.10.254
 """,
         },
-        # VSX In-Sync 確認後に自動投入する MCLAG 設定
-        # vsx-sync 適用後に shutdown/no shutdown でLACPをリセットし、
-        # 両spineが同時にVSX MACでLACPネゴシエーションを開始できるようにする
+        # Phase1: VSX In-Sync 後に spine の multi-chassis LAG ポートを再割り当て
+        # (シミュレータLACPワークアラウンド: no lag → shut → no shut → lag)
         "mclag_configs": {
             "spine1": """\
-interface lag 10
-    vsx-sync
+interface 1/1/5
+    no lag 10
     shutdown
     no shutdown
-interface lag 20
-    vsx-sync
+    lag 10
+interface 1/1/6
+    no lag 20
+    shutdown
+    no shutdown
+    lag 20
+""",
+            "spine2": """\
+interface 1/1/5
+    no lag 10
+    shutdown
+    no shutdown
+    lag 10
+interface 1/1/6
+    no lag 20
+    shutdown
+    no shutdown
+    lag 20
+""",
+        },
+        # Phase2: spine の LACP 安定化後に leaf 側ポートをshut/no shut
+        "mclag_leaf_configs": {
+            "leaf1": """\
+interface 1/1/2
+    shutdown
+    no shutdown
+interface 1/1/3
     shutdown
     no shutdown
 """,
-            "spine2": """\
-interface lag 10
-    vsx-sync
+            "leaf2": """\
+interface 1/1/2
     shutdown
     no shutdown
-interface lag 20
-    vsx-sync
+interface 1/1/3
     shutdown
     no shutdown
 """,
         },
         "verification": [
-            "spine1/spine2 で VSX セッションが Established になること",
-            "デプロイログに 'MCLAG (vsx-sync) 設定投入完了' が表示されること",
-            "leaf1/leaf2 で show lacp aggregates が Established になること",
+            "spine1/spine2 で VSX セッションが In-Sync になること",
+            "デプロイログに 'MCLAG 設定投入完了' が表示されること",
+            "spine1/spine2 で show interface lag10/lag20 が UP になること",
+            "leaf1/leaf2 で show lacp aggregates の lag1 が UP (両メンバー active) になること",
             "leaf1 → leaf2 へ ping 10.10.10.2 が通ること",
             "Anycast gateway (10.10.10.254) への ping が通ること",
         ],
         "test_commands": {
             "spine1": [
                 "show vsx status",
-                "show lacp aggregates",
+                "show interface lag10",
+                "show interface lag20",
             ],
             "spine2": [
                 "show vsx status",
-                "show lacp aggregates",
+                "show interface lag10",
+                "show interface lag20",
             ],
             "leaf1": [
                 "show lacp aggregates",

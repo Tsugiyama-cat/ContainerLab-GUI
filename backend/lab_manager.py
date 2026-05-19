@@ -40,7 +40,8 @@ class LabManager:
         self.deployed = False
         self.deployed_nodes: dict[str, dict] = {}
         self.startup_configs: dict[str, str] = {}  # node_name -> running-config text
-        self.mclag_configs: dict[str, str] = {}    # VSX In-Sync 後に投入するコンフィグ
+        self.mclag_configs: dict[str, str] = {}    # Phase1: spine ポート再割り当て
+        self.mclag_leaf_configs: dict[str, str] = {}  # Phase2: leaf ポートshut/no-shut
         self.vsx_primary: str = ""                  # VSX In-Sync 監視対象ノード名
         self.mclag_status: str = ""                 # フロントエンド表示用ステータス
 
@@ -270,6 +271,7 @@ class LabManager:
         self.deployed = False
         self.deployed_nodes = {}
         self.mclag_status = ""
+        self.mclag_leaf_configs = {}
         return True, "ラボを破棄しました"
 
     async def _refresh_node_info(self):
