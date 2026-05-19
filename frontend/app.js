@@ -1029,19 +1029,15 @@ function enterBroadcastMode(nodeNames) {
         };
 
         term.onData(data => {
-          log(`[DBG] onData fired: ${nodeName} sessions=${_broadcastPopupSessions.length}`, 'info');
           for (const s of _broadcastPopupSessions) {
-            if (s.ws.readyState === WebSocket.OPEN) {
-              s.ws.send(JSON.stringify({ type: 'input', data }));
-            } else {
-              log(`[DBG] ${s.nodeName} ws.readyState=${s.ws.readyState}`, 'warn');
-            }
+            if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
           }
         });
         term.onResize(({ cols, rows }) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         });
-        term.onFocus(() => {
+        // term.onFocus は xterm v5.3.0 に存在しないため click イベントで代替
+        inner.addEventListener('click', () => {
           container.querySelectorAll('.broadcast-term-col').forEach(c => c.classList.remove('focused'));
           col.classList.add('focused');
         });
