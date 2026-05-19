@@ -926,11 +926,16 @@ function closeCLITab(tabId) {
 function _updateBroadcastBtn() {
   const btn        = $('btn-broadcast');
   const readyCount = Object.values(state.deployedNodes || {}).filter(d => d.mgmt_ip).length;
-  btn.disabled     = readyCount < 2;
+  btn.disabled     = !_broadcastMode && readyCount < 2;
   btn.classList.toggle('broadcast-active', _broadcastMode);
-  btn.textContent  = _broadcastMode
-    ? `一括入力 ON (${_broadcastPopupSessions.length}台)`
-    : '一括入力';
+  if (_broadcastMode) {
+    const popupVisible = $('modal-broadcast-view').classList.contains('visible');
+    btn.textContent = popupVisible
+      ? `一括入力 ON (${_broadcastPopupSessions.length}台)`
+      : `一括入力 (一時停止 ${_broadcastPopupSessions.length}台)`;
+  } else {
+    btn.textContent = '一括入力';
+  }
 }
 
 function showBroadcastSelectModal() {
@@ -1062,6 +1067,20 @@ function enterBroadcastMode(nodeNames) {
   log(`一括入力 ON — ${nodeNames.length} 台: ${nodeNames.join(', ')}`, 'warn');
 }
 
+function _toggleBroadcastPopup() {
+  const modal = $('modal-broadcast-view');
+  if (modal.classList.contains('visible')) {
+    modal.classList.remove('visible');
+  } else {
+    modal.classList.add('visible');
+    requestAnimationFrame(() => {
+      for (const s of _broadcastPopupSessions) s.fitAddon.fit();
+      if (_broadcastPopupSessions.length > 0) _broadcastPopupSessions[0].term.focus();
+    });
+  }
+  _updateBroadcastBtn();
+}
+
 function exitBroadcastMode() {
   if (!_broadcastMode) return;
   _broadcastMode = false;
@@ -1076,7 +1095,11 @@ function exitBroadcastMode() {
 }
 
 $('btn-broadcast').addEventListener('click', () => {
-  if (_broadcastMode) { exitBroadcastMode(); return; }
+  if (_broadcastMode) {
+    // 一時停止 ↔ 再開トグル
+    _toggleBroadcastPopup();
+    return;
+  }
   showBroadcastSelectModal();
 });
 $('btn-broadcast-close').addEventListener('click', exitBroadcastMode);
@@ -1226,7 +1249,7 @@ document.addEventListener('keydown', async e => {
     $('modal-bulk-cmd').classList.remove('visible');
     $('modal-ping').classList.remove('visible');
     $('modal-broadcast-select').classList.remove('visible');
-    exitBroadcastMode();
+    if (_broadcastMode) _toggleBroadcastPopup();
     closeTplModal();
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && !isInputFocused()) {
