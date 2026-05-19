@@ -336,6 +336,42 @@ html, body {
   border-color: #f0a940;
   background: rgba(240,169,64,0.1);
 }
+.btn-tab-action:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+/* 全台入力 横並びビュー */
+.broadcast-view {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+.broadcast-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--border);
+  overflow: hidden;
+  min-width: 0;
+}
+.broadcast-col:last-child { border-right: none; }
+.broadcast-col-header {
+  font-size: 10px;
+  font-family: Consolas, monospace;
+  color: #f0a940;
+  background: rgba(240,169,64,0.07);
+  border-bottom: 1px solid rgba(240,169,64,0.25);
+  padding: 3px 8px;
+  text-align: center;
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+}
+.broadcast-col .cli-pane-inner {
+  flex: 1;
+  min-height: 0;
+}
 
 #bottom-content {
   flex: 1;

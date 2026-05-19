@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContainerLab GUI v1.1</title>
-  <link rel="stylesheet" href="/static/style.css?v=17">
+  <link rel="stylesheet" href="/static/style.css?v=18">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
   <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -231,6 +231,20 @@
   </div>
 </div>
 
+<!-- 全台入力 ノード選択モーダル -->
+<div class="modal-overlay" id="modal-broadcast-select">
+  <div class="modal-box" style="max-width:320px">
+    <h3>全台入力するCLIを選択</h3>
+    <div class="form-group">
+      <div id="broadcast-node-list" class="node-check-grid"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost"   id="btn-broadcast-cancel">キャンセル</button>
+      <button class="btn btn-primary" id="btn-broadcast-confirm">開始</button>
+    </div>
+  </div>
+</div>
+
 <!-- テンプレートブラウザモーダル -->
 <div class="modal-overlay" id="modal-templates">
   <div class="modal-box tpl-browser-box">
@@ -266,6 +280,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=17"></script>
+<script src="/static/app.js?v=18"></script>
 </body>
 </html>

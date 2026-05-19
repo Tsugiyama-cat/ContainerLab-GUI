@@ -817,7 +817,8 @@ function stopPolling() {
 let _tabCounter    = 0;
 let _activeTab     = 'log';
 const _cliSessions = {};
-let _broadcastMode = false;
+let _broadcastMode    = false;
+let _broadcastSessions = new Set(); // 全台入力対象の tabId セット
 
 function openCLITab(nodeName, sshPort) {
   const port  = sshPort || 22;
@@ -882,9 +883,10 @@ function openCLITab(nodeName, sshPort) {
 
   term.onData(data => {
     if (_broadcastMode) {
-      Object.values(_cliSessions).forEach(s => {
-        if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
-      });
+      for (const tid of _broadcastSessions) {
+        const s = _cliSessions[tid];
+        if (s?.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
+      }
     } else {
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
     }
@@ -900,6 +902,11 @@ function openCLITab(nodeName, sshPort) {
 }
 
 function switchTab(tabId) {
+  // 個別 CLI タブに切り替えたらブロードキャストモードを終了
+  if (_broadcastMode && tabId !== 'log' && tabId !== 'broadcast') {
+    exitBroadcastMode();
+  }
+
   document.querySelectorAll('.bottom-tab').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
 
@@ -915,6 +922,25 @@ function switchTab(tabId) {
 }
 
 function closeCLITab(tabId) {
+  // ブロードキャスト中にこのタブが含まれていたら整理
+  if (_broadcastMode && _broadcastSessions.has(tabId)) {
+    $(`broadcast-col-${tabId}`)?.remove();
+    _broadcastSessions.delete(tabId);
+    if (_broadcastSessions.size < 2) {
+      // 残りを個別paneに戻してブロードキャスト終了
+      _broadcastMode = false;
+      for (const tid of _broadcastSessions) {
+        const inner = $(`term-inner-${tid}`);
+        const pane  = $(`tab-pane-${tid}`);
+        if (inner && pane) pane.appendChild(inner);
+        setTimeout(() => _cliSessions[tid]?.fitAddon.fit(), 50);
+      }
+      _broadcastSessions.clear();
+      $('tab-pane-broadcast')?.remove();
+      log('全台入力 OFF (残り1台以下)', 'info');
+    }
+  }
+
   const session = _cliSessions[tabId];
   if (session) {
     session.ws.close();
@@ -923,31 +949,108 @@ function closeCLITab(tabId) {
   }
   $(`tab-btn-${tabId}`)?.remove();
   $(`tab-pane-${tabId}`)?.remove();
-  if (_activeTab === tabId) switchTab('log');
+  if (_activeTab === tabId || _activeTab === 'broadcast') switchTab('log');
   _updateBroadcastBtn();
 }
 
 // ── 全台入力モード ────────────────────────────────────────────────────────
 function _updateBroadcastBtn() {
-  const btn = $('btn-broadcast');
+  const btn   = $('btn-broadcast');
   const count = Object.keys(_cliSessions).length;
-  if (_broadcastMode && count === 0) {
+  if (_broadcastMode && _broadcastSessions.size === 0) {
     _broadcastMode = false;
   }
+  btn.disabled = count <= 1;
   btn.classList.toggle('broadcast-active', _broadcastMode);
-  btn.textContent = _broadcastMode ? `全台入力 ON (${count}台)` : '全台入力';
+  btn.textContent = _broadcastMode
+    ? `全台入力 ON (${_broadcastSessions.size}台)`
+    : '全台入力';
+}
+
+function showBroadcastSelectModal() {
+  const list = $('broadcast-node-list');
+  list.innerHTML = '';
+  for (const [tabId, session] of Object.entries(_cliSessions)) {
+    const label = document.createElement('label');
+    label.className = 'node-check-item';
+    label.innerHTML = `<input type="checkbox" value="${tabId}" checked> ${session.nodeName}`;
+    list.appendChild(label);
+  }
+  $('modal-broadcast-select').classList.add('visible');
+}
+
+function enterBroadcastMode(selectedTabIds) {
+  _broadcastMode    = true;
+  _broadcastSessions = new Set(selectedTabIds);
+
+  // 横並びビューペインを構築
+  let pane = $('tab-pane-broadcast');
+  if (!pane) {
+    pane = document.createElement('div');
+    pane.id = 'tab-pane-broadcast';
+    pane.className = 'tab-pane broadcast-view';
+    $('bottom-content').appendChild(pane);
+  } else {
+    pane.innerHTML = '';
+  }
+
+  for (const tabId of selectedTabIds) {
+    const session = _cliSessions[tabId];
+    if (!session) continue;
+    const col = document.createElement('div');
+    col.className = 'broadcast-col';
+    col.id = `broadcast-col-${tabId}`;
+    const header = document.createElement('div');
+    header.className = 'broadcast-col-header';
+    header.textContent = session.nodeName;
+    const inner = $(`term-inner-${tabId}`);
+    col.appendChild(header);
+    if (inner) col.appendChild(inner);
+    pane.appendChild(col);
+  }
+
+  switchTab('broadcast');
+  setTimeout(() => {
+    for (const tabId of _broadcastSessions) _cliSessions[tabId]?.fitAddon.fit();
+  }, 50);
+
+  _updateBroadcastBtn();
+  const names = selectedTabIds.map(t => _cliSessions[t]?.nodeName).join(', ');
+  log(`全台入力 ON — ${selectedTabIds.length} 台: ${names}`, 'warn');
+}
+
+function exitBroadcastMode() {
+  if (!_broadcastMode) return;
+  _broadcastMode = false;
+
+  // 各ターミナルを元のペインに戻す
+  for (const tabId of _broadcastSessions) {
+    const inner = $(`term-inner-${tabId}`);
+    const origPane = $(`tab-pane-${tabId}`);
+    if (inner && origPane) origPane.appendChild(inner);
+    setTimeout(() => _cliSessions[tabId]?.fitAddon.fit(), 50);
+  }
+  _broadcastSessions.clear();
+  $('tab-pane-broadcast')?.remove();
+  _updateBroadcastBtn();
+  log('全台入力 OFF', 'info');
 }
 
 $('btn-broadcast').addEventListener('click', () => {
-  const count = Object.keys(_cliSessions).length;
-  if (count === 0) { log('CLI タブを先に開いてください', 'warn'); return; }
-  _broadcastMode = !_broadcastMode;
-  _updateBroadcastBtn();
-  if (_broadcastMode) {
-    log(`全台入力 ON — ${count} 台のCLIに同時入力されます`, 'warn');
-  } else {
-    log('全台入力 OFF', 'info');
-  }
+  if (_broadcastMode) { exitBroadcastMode(); return; }
+  showBroadcastSelectModal();
+});
+
+$('btn-broadcast-cancel').addEventListener('click', () => {
+  $('modal-broadcast-select').classList.remove('visible');
+});
+
+$('btn-broadcast-confirm').addEventListener('click', () => {
+  const checked = [...$('broadcast-node-list').querySelectorAll('input[type=checkbox]:checked')];
+  const ids = checked.map(c => c.value);
+  $('modal-broadcast-select').classList.remove('visible');
+  if (ids.length < 2) { log('2台以上選択してください', 'warn'); return; }
+  enterBroadcastMode(ids);
 });
 
 // ── ボトムパネル リサイズ ──────────────────────────────────────────────────
@@ -1080,6 +1183,7 @@ document.addEventListener('keydown', async e => {
     elModalLink.classList.remove('visible');
     $('modal-bulk-cmd').classList.remove('visible');
     $('modal-ping').classList.remove('visible');
+    $('modal-broadcast-select').classList.remove('visible');
     closeTplModal();
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && !isInputFocused()) {
