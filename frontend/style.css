@@ -342,9 +342,14 @@ html, body {
   pointer-events: none;
 }
 
-/* 全台入力 横並びビュー */
+/* 一括入力 横並びビュー */
+/* tab-pane.active の flex-direction:column を上書きして横並びにする */
+.tab-pane.active.broadcast-view {
+  flex-direction: row;
+}
 .broadcast-view {
   display: flex;
+  flex-direction: row;
   height: 100%;
   overflow: hidden;
 }
@@ -355,8 +360,20 @@ html, body {
   border-right: 1px solid var(--border);
   overflow: hidden;
   min-width: 0;
+  transition: outline .1s;
 }
 .broadcast-col:last-child { border-right: none; }
+/* 入力中カラムのハイライト */
+.broadcast-col.focused {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  z-index: 1;
+}
+.broadcast-col.focused .broadcast-col-header {
+  background: rgba(79,142,247,0.15);
+  color: #6aa3ff;
+  border-bottom-color: rgba(79,142,247,0.4);
+}
 .broadcast-col-header {
   font-size: 10px;
   font-family: Consolas, monospace;
@@ -367,6 +384,7 @@ html, body {
   text-align: center;
   flex-shrink: 0;
   letter-spacing: 0.04em;
+  transition: background .15s, color .15s, border-bottom-color .15s;
 }
 .broadcast-col .cli-pane-inner {
   flex: 1;

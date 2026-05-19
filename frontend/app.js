@@ -818,7 +818,7 @@ let _tabCounter    = 0;
 let _activeTab     = 'log';
 const _cliSessions = {};
 let _broadcastMode    = false;
-let _broadcastSessions = new Set(); // 全台入力対象の tabId セット
+let _broadcastSessions = new Set(); // 一括入力対象の tabId セット
 
 function openCLITab(nodeName, sshPort) {
   const port  = sshPort || 22;
@@ -937,7 +937,7 @@ function closeCLITab(tabId) {
       }
       _broadcastSessions.clear();
       $('tab-pane-broadcast')?.remove();
-      log('全台入力 OFF (残り1台以下)', 'info');
+      log('一括入力 OFF (残り1台以下)', 'info');
     }
   }
 
@@ -953,7 +953,7 @@ function closeCLITab(tabId) {
   _updateBroadcastBtn();
 }
 
-// ── 全台入力モード ────────────────────────────────────────────────────────
+// ── 一括入力モード ────────────────────────────────────────────────────────
 function _updateBroadcastBtn() {
   const btn   = $('btn-broadcast');
   const count = Object.keys(_cliSessions).length;
@@ -963,8 +963,8 @@ function _updateBroadcastBtn() {
   btn.disabled = count <= 1;
   btn.classList.toggle('broadcast-active', _broadcastMode);
   btn.textContent = _broadcastMode
-    ? `全台入力 ON (${_broadcastSessions.size}台)`
-    : '全台入力';
+    ? `一括入力 ON (${_broadcastSessions.size}台)`
+    : '一括入力';
 }
 
 function showBroadcastSelectModal() {
@@ -1007,6 +1007,12 @@ function enterBroadcastMode(selectedTabIds) {
     col.appendChild(header);
     if (inner) col.appendChild(inner);
     pane.appendChild(col);
+
+    // フォーカス時にカラムをハイライト
+    session.term.onFocus(() => {
+      document.querySelectorAll('.broadcast-col').forEach(c => c.classList.remove('focused'));
+      col.classList.add('focused');
+    });
   }
 
   switchTab('broadcast');
@@ -1016,7 +1022,7 @@ function enterBroadcastMode(selectedTabIds) {
 
   _updateBroadcastBtn();
   const names = selectedTabIds.map(t => _cliSessions[t]?.nodeName).join(', ');
-  log(`全台入力 ON — ${selectedTabIds.length} 台: ${names}`, 'warn');
+  log(`一括入力 ON — ${selectedTabIds.length} 台: ${names}`, 'warn');
 }
 
 function exitBroadcastMode() {
@@ -1033,7 +1039,7 @@ function exitBroadcastMode() {
   _broadcastSessions.clear();
   $('tab-pane-broadcast')?.remove();
   _updateBroadcastBtn();
-  log('全台入力 OFF', 'info');
+  log('一括入力 OFF', 'info');
 }
 
 $('btn-broadcast').addEventListener('click', () => {
