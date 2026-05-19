@@ -902,10 +902,8 @@ function openCLITab(nodeName, sshPort) {
 }
 
 function switchTab(tabId) {
-  // 個別 CLI タブに切り替えたらブロードキャストモードを終了
-  if (_broadcastMode && tabId !== 'log' && tabId !== 'broadcast') {
-    exitBroadcastMode();
-  }
+  // broadcast モード中にタブを切り替えたら終了（exitBroadcastMode は switchTab を呼ばない）
+  if (_broadcastMode) exitBroadcastMode();
 
   document.querySelectorAll('.bottom-tab').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
@@ -922,22 +920,21 @@ function switchTab(tabId) {
 }
 
 function closeCLITab(tabId) {
-  // ブロードキャスト中にこのタブが含まれていたら整理
   if (_broadcastMode && _broadcastSessions.has(tabId)) {
-    $(`broadcast-col-${tabId}`)?.remove();
+    // このタブをブロードキャスト対象から除去
+    $(`tab-pane-${tabId}`)?.querySelector('[data-broadcast-header]')?.remove();
+    $(`tab-pane-${tabId}`)?.classList.remove('broadcast-selected', 'focused');
     _broadcastSessions.delete(tabId);
+
     if (_broadcastSessions.size < 2) {
-      // 残りを個別paneに戻してブロードキャスト終了
-      _broadcastMode = false;
-      for (const tid of _broadcastSessions) {
-        const inner = $(`term-inner-${tid}`);
-        const pane  = $(`tab-pane-${tid}`);
-        if (inner && pane) pane.appendChild(inner);
-        setTimeout(() => _cliSessions[tid]?.fitAddon.fit(), 50);
-      }
-      _broadcastSessions.clear();
-      $('tab-pane-broadcast')?.remove();
-      log('一括入力 OFF (残り1台以下)', 'info');
+      // 残り1台以下 → 一括入力を終了
+      exitBroadcastMode();
+      // switchTab はこのあと下で呼ぶ
+    } else {
+      // まだ複数台 → 残りを再 fit
+      setTimeout(() => {
+        for (const tid of _broadcastSessions) _cliSessions[tid]?.fitAddon.fit();
+      }, 50);
     }
   }
 
@@ -949,7 +946,7 @@ function closeCLITab(tabId) {
   }
   $(`tab-btn-${tabId}`)?.remove();
   $(`tab-pane-${tabId}`)?.remove();
-  if (_activeTab === tabId || _activeTab === 'broadcast') switchTab('log');
+  if (!_broadcastMode && (_activeTab === tabId || _activeTab === 'broadcast')) switchTab('log');
   _updateBroadcastBtn();
 }
 
@@ -980,42 +977,38 @@ function showBroadcastSelectModal() {
 }
 
 function enterBroadcastMode(selectedTabIds) {
-  _broadcastMode    = true;
+  _broadcastMode     = true;
   _broadcastSessions = new Set(selectedTabIds);
 
-  // 横並びビューペインを構築
-  let pane = $('tab-pane-broadcast');
-  if (!pane) {
-    pane = document.createElement('div');
-    pane.id = 'tab-pane-broadcast';
-    pane.className = 'tab-pane broadcast-view';
-    $('bottom-content').appendChild(pane);
-  } else {
-    pane.innerHTML = '';
-  }
-
+  // 各ペインにヘッダーを差し込み broadcast-selected クラスを付与
   for (const tabId of selectedTabIds) {
     const session = _cliSessions[tabId];
-    if (!session) continue;
-    const col = document.createElement('div');
-    col.className = 'broadcast-col';
-    col.id = `broadcast-col-${tabId}`;
+    const pane    = $(`tab-pane-${tabId}`);
+    if (!session || !pane) continue;
+
+    pane.classList.add('broadcast-selected');
+
     const header = document.createElement('div');
     header.className = 'broadcast-col-header';
+    header.dataset.broadcastHeader = 'true';
     header.textContent = session.nodeName;
-    const inner = $(`term-inner-${tabId}`);
-    col.appendChild(header);
-    if (inner) col.appendChild(inner);
-    pane.appendChild(col);
+    pane.insertBefore(header, pane.firstChild);
 
-    // フォーカス時にカラムをハイライト
+    // フォーカス時に該当ペインをハイライト
     session.term.onFocus(() => {
-      document.querySelectorAll('.broadcast-col').forEach(c => c.classList.remove('focused'));
-      col.classList.add('focused');
+      document.querySelectorAll('.broadcast-selected').forEach(p => p.classList.remove('focused'));
+      pane.classList.add('focused');
     });
   }
 
-  switchTab('broadcast');
+  // bottom-content を横並びモードに
+  $('bottom-content').classList.add('broadcast-on');
+  // 全タブボタンの active を外し、仮想タブ 'broadcast' をアクティブとする
+  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.bottom-tab').forEach(b => b.classList.remove('active'));
+  _activeTab = 'broadcast';
+  $('btn-clear-log').style.display = 'none';
+
   setTimeout(() => {
     for (const tabId of _broadcastSessions) _cliSessions[tabId]?.fitAddon.fit();
   }, 50);
@@ -1029,21 +1022,23 @@ function exitBroadcastMode() {
   if (!_broadcastMode) return;
   _broadcastMode = false;
 
-  // 各ターミナルを元のペインに戻す
-  for (const tabId of _broadcastSessions) {
-    const inner = $(`term-inner-${tabId}`);
-    const origPane = $(`tab-pane-${tabId}`);
-    if (inner && origPane) origPane.appendChild(inner);
-    setTimeout(() => _cliSessions[tabId]?.fitAddon.fit(), 50);
-  }
+  // ヘッダー削除・クラスをリセット
+  document.querySelectorAll('.broadcast-selected').forEach(p => {
+    p.querySelector('[data-broadcast-header]')?.remove();
+    p.classList.remove('broadcast-selected', 'focused');
+  });
+  $('bottom-content').classList.remove('broadcast-on');
   _broadcastSessions.clear();
-  $('tab-pane-broadcast')?.remove();
   _updateBroadcastBtn();
   log('一括入力 OFF', 'info');
 }
 
 $('btn-broadcast').addEventListener('click', () => {
-  if (_broadcastMode) { exitBroadcastMode(); return; }
+  if (_broadcastMode) {
+    exitBroadcastMode();
+    switchTab('log');
+    return;
+  }
   showBroadcastSelectModal();
 });
 
@@ -1076,7 +1071,9 @@ $('btn-broadcast-confirm').addEventListener('click', () => {
     const dy  = startY - e.clientY;
     const newH = Math.max(80, Math.min(window.innerHeight * 0.7, startH + dy));
     panel.style.height = newH + 'px';
-    if (_activeTab !== 'log' && _cliSessions[_activeTab]) {
+    if (_broadcastMode) {
+      for (const tid of _broadcastSessions) _cliSessions[tid]?.fitAddon.fit();
+    } else if (_activeTab !== 'log' && _cliSessions[_activeTab]) {
       _cliSessions[_activeTab].fitAddon.fit();
     }
   });

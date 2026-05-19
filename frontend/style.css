@@ -342,37 +342,28 @@ html, body {
   pointer-events: none;
 }
 
-/* 一括入力 横並びビュー */
-/* tab-pane.active の flex-direction:column を上書きして横並びにする */
-.tab-pane.active.broadcast-view {
-  flex-direction: row;
-}
-.broadcast-view {
+/* 一括入力 横並びビュー
+   DOM 要素を動かさず #bottom-content にクラスを付けて制御する */
+#bottom-content.broadcast-on {
   display: flex;
   flex-direction: row;
-  height: 100%;
-  overflow: hidden;
 }
-.broadcast-col {
-  flex: 1;
+/* 選択されていないペインは非表示 */
+#bottom-content.broadcast-on .tab-pane { display: none; }
+/* 選択されたペインを横に並べる */
+#bottom-content.broadcast-on .tab-pane.broadcast-selected {
   display: flex;
   flex-direction: column;
+  flex: 1;
   border-right: 1px solid var(--border);
-  overflow: hidden;
   min-width: 0;
-  transition: outline .1s;
+  overflow: hidden;
 }
-.broadcast-col:last-child { border-right: none; }
-/* 入力中カラムのハイライト */
-.broadcast-col.focused {
+/* 入力中ペインをアクセントカラーで強調 */
+#bottom-content.broadcast-on .tab-pane.broadcast-selected.focused {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
   z-index: 1;
-}
-.broadcast-col.focused .broadcast-col-header {
-  background: rgba(79,142,247,0.15);
-  color: #6aa3ff;
-  border-bottom-color: rgba(79,142,247,0.4);
 }
 .broadcast-col-header {
   font-size: 10px;
@@ -386,9 +377,10 @@ html, body {
   letter-spacing: 0.04em;
   transition: background .15s, color .15s, border-bottom-color .15s;
 }
-.broadcast-col .cli-pane-inner {
-  flex: 1;
-  min-height: 0;
+#bottom-content.broadcast-on .tab-pane.broadcast-selected.focused .broadcast-col-header {
+  background: rgba(79,142,247,0.15);
+  color: #6aa3ff;
+  border-bottom-color: rgba(79,142,247,0.4);
 }
 
 #bottom-content {
