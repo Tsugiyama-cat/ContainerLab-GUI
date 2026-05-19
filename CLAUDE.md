@@ -4,7 +4,7 @@
 > 解決済みの問題・古くなった注意事項は**その場で削除**し、新たに判明した重要事項は追記すること。
 > ファイルは常に「今まさに役立つ情報だけ」に保つ。最終確認日を更新すること。
 >
-> **最終確認日: 2026-05-19（テンプレート検証完了: BGP L3 / EVPN-VXLAN / VSX ペア / VSX Spine-Leaf 動作確認済み）**
+> **最終確認日: 2026-05-19（テンプレート検証完了: BGP L3 / EVPN-VXLAN / VSX ペア / VSX Spine-Leaf + MCLAG 動作確認済み）**
 
 ---
 
@@ -28,7 +28,11 @@ docker-compose.yml / Dockerfile
 ## VSX テンプレートの設計メモ（動作確認済み 2026-05-19）
 
 - **VSX ISL は非 MCLAG アクセスポートの L2 フラッディングを行わない** → 同一 VLAN の L2 延伸には使えない
-- **VSX LAG (vsx-sync) は startup-config では動作しない** → VSX 確立前に適用されるため lag が "Disabled by LACP or LAG" になる
+- **MCLAG の正しい構文は `interface lag <N> multi-chassis`** — `vsx-sync` を interface lag 下に書くのは誤り
+- **`vsx-sync mclag-interfaces vsx-global`** は `vsx` セクション（PRIMARY のみ）に書く → secondary への Config Sync を有効化
+- **Config Sync は VLAN trunk 設定を完全に伝搬しない** → spine2 の startup-config にも lag の `vlan trunk native 1 / vlan trunk allowed` を明示すること
+- **VSX secondary の linkup-delay-timer は 180 秒** → MCLAG Phase2 (leaf ポート bounce) は Phase1 完了後 175 秒待機してから実施
+- **シミュレータ VSX LAG ワークアラウンド (Lab Guide p.2)**: VSX In-Sync 後に spine の物理ポートで `no lag N` → `shutdown` → `no shutdown` → `lag N` を実施し、その後 leaf ポートを `shutdown/no shutdown` する
 - **Keepalive リンク (1/1/4) は通常の L3 データ転送にも使用可能** → VSX keepalive と並行して ip route のネクストホップに使える
 - **VSX Spine-Leaf テンプレートの設計**: leaf1→VLAN10(spine1側)、leaf2→VLAN20(spine2側) に分け、スパイン間は keepalive リンク経由 L3 ルーティング
   - 疎通経路: leaf1 → spine1 → keepalive(192.168.255.0/30) → spine2 → leaf2 (TTL=62 で 2 ホップ確認済み)
