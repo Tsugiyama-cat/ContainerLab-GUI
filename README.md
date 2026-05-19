@@ -7,10 +7,20 @@
 
 ## 対応ノードタイプ
 
-| ノード | イメージ |
-|---|---|
-| Aruba AOS-CX | `clabgui/aruba_arubaos-cx:10.16.1006` |
-| Juniper vJunos-Switch | `clabgui/juniper_vjunosswitch:25.4R1.12` |
+| ノード | イメージ | 動作環境 |
+|---|---|---|
+| Aruba AOS-CX | `clabgui/aruba_arubaos-cx:10.16.1006` | ベアメタル / VM どちらでも可 |
+| Juniper vJunos-Switch | `clabgui/juniper_vjunosswitch:25.4R1.12` | **ベアメタル Linux / Intel Mac のみ** |
+
+> **⚠️ vJunos-Switch の制約**
+>
+> vJunos-Switch は内部で QEMU/KVM を使用するネスト仮想化構造のため、  
+> **VM 上（ESXi ゲスト、VirtualBox、VMware Fusion 等）では動作しません。**  
+> [ContainerLab 公式ドキュメント](https://containerlab.dev/manual/kinds/vr-vjunosswitch/) より:  
+> *"Due to its nested architecture, vJunos-switch cannot be used in any deployments that launch it from within a VM."*
+>
+> **動作確認済み環境:** ベアメタル Linux（Ubuntu 22.04+）、Intel Mac  
+> **動作しない環境:** ESXi/Hyper-V/VirtualBox ゲスト VM、Apple Silicon (M1/M2/M3) Mac
 
 ---
 
@@ -47,8 +57,19 @@ make
 
 ### Juniper vJunos-Switch
 
+> ⚠️ **ベアメタル Linux または Intel Mac 上でのみ実行可能です。**
+
 1. [Juniper Software Download](https://support.juniper.net/support/downloads/) から `vJunos-switch` の `.qcow2` をダウンロード
-2. vrnetlab の Juniper ディレクトリに配置してビルド
+2. `SWOS/Jnos/` に配置
+3. Dockerイメージをビルド:
+
+```bash
+cd SWOS/Jnos/docker
+make
+# → clabgui/juniper_vjunosswitch:<バージョン> としてビルドされます
+```
+
+> 起動完了まで約15分かかります。
 
 > **注意:** これらのイメージファイル（`.ova` / `.vmdk` / `.ovf` / `.qcow2`）は `.gitignore` により Git 管理対象外です。ローカルにのみ保存してください。
 
