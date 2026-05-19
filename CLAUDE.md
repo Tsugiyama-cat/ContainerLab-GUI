@@ -4,7 +4,7 @@
 > 解決済みの問題・古くなった注意事項は**その場で削除**し、新たに判明した重要事項は追記すること。
 > ファイルは常に「今まさに役立つ情報だけ」に保つ。最終確認日を更新すること。
 >
-> **最終確認日: 2026-05-15（テンプレート検証完了: BGP L3 / EVPN-VXLAN 動作確認済み）**
+> **最終確認日: 2026-05-19（テンプレート検証完了: BGP L3 / EVPN-VXLAN / VSX ペア / VSX Spine-Leaf 動作確認済み）**
 
 ---
 
@@ -24,6 +24,15 @@ docker-compose.yml / Dockerfile
 起動ポート: **8888**
 
 ---
+
+## VSX テンプレートの設計メモ（動作確認済み 2026-05-19）
+
+- **VSX ISL は非 MCLAG アクセスポートの L2 フラッディングを行わない** → 同一 VLAN の L2 延伸には使えない
+- **VSX LAG (vsx-sync) は startup-config では動作しない** → VSX 確立前に適用されるため lag が "Disabled by LACP or LAG" になる
+- **Keepalive リンク (1/1/4) は通常の L3 データ転送にも使用可能** → VSX keepalive と並行して ip route のネクストホップに使える
+- **VSX Spine-Leaf テンプレートの設計**: leaf1→VLAN10(spine1側)、leaf2→VLAN20(spine2側) に分け、スパイン間は keepalive リンク経由 L3 ルーティング
+  - 疎通経路: leaf1 → spine1 → keepalive(192.168.255.0/30) → spine2 → leaf2 (TTL=62 で 2 ホップ確認済み)
+- **clab deploy は既存 node config ディレクトリの startup-config.cfg を上書きしない** → deploy() 内で `clab-{LAB_NAME}/` を事前削除することで修正済み
 
 ## 重要な制約・既知の挙動
 
