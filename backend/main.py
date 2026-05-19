@@ -26,35 +26,39 @@ _mclag_task: Optional[asyncio.Task] = None
 
 # ── MCLAG バックグラウンドタスク ──────────────────────────────
 
-async def _ssh_push_config(info: dict, config: str) -> bool:
-    """SSH で configure terminal → コンフィグ投入 → write memory"""
+async def _ssh_push_config(info: dict, config: str, retries: int = 3) -> bool:
+    """SSH で configure terminal → コンフィグ投入 → write memory (最大 retries 回リトライ)"""
     lines = [l.rstrip() for l in config.splitlines()
              if l.strip() and not l.strip().startswith('#')]
-    try:
-        async with asyncssh.connect(
-            info["mgmt_ip"],
-            port=info.get("ssh_port", 22),
-            username=info["ssh_user"],
-            password=info["ssh_pass"],
-            known_hosts=None,
-            connect_timeout=30,
-        ) as conn:
-            async with conn.create_process(term_type="vt100", term_size=(220, 50)) as proc:
-                await asyncio.sleep(3.0)
-                proc.stdin.write("configure terminal\n")
-                await asyncio.sleep(1.0)
-                for line in lines:
-                    proc.stdin.write(line + "\n")
-                    await asyncio.sleep(0.1)
-                proc.stdin.write("end\n")
-                await asyncio.sleep(1.0)
-                proc.stdin.write("write memory\n")
-                await asyncio.sleep(5.0)
-                proc.stdin.write("exit\n")
-                await asyncio.sleep(0.5)
-        return True
-    except Exception:
-        return False
+    for attempt in range(retries):
+        if attempt > 0:
+            await asyncio.sleep(10)
+        try:
+            async with asyncssh.connect(
+                info["mgmt_ip"],
+                port=info.get("ssh_port", 22),
+                username=info["ssh_user"],
+                password=info["ssh_pass"],
+                known_hosts=None,
+                connect_timeout=30,
+            ) as conn:
+                async with conn.create_process(term_type="vt100", term_size=(220, 50)) as proc:
+                    await asyncio.sleep(3.0)
+                    proc.stdin.write("configure terminal\n")
+                    await asyncio.sleep(1.0)
+                    for line in lines:
+                        proc.stdin.write(line + "\n")
+                        await asyncio.sleep(0.1)
+                    proc.stdin.write("end\n")
+                    await asyncio.sleep(1.0)
+                    proc.stdin.write("write memory\n")
+                    await asyncio.sleep(5.0)
+                    proc.stdin.write("exit\n")
+                    await asyncio.sleep(0.5)
+            return True
+        except Exception:
+            continue
+    return False
 
 
 async def _vsx_mclag_background():
@@ -109,15 +113,23 @@ async def _vsx_mclag_background():
     lab.mclag_status = "VSX In-Sync 確認 → MCLAG (vsx-sync) 設定投入中..."
     await asyncio.sleep(10)  # VSX 安定化のため追加待機
 
+    failed = []
     for node_name, config in lab.mclag_configs.items():
         if not lab.deployed:
             return
         info = lab.get_ssh_info(node_name)
         if not info or not info.get("mgmt_ip"):
+            failed.append(f"{node_name}(IP未取得)")
             continue
-        await _ssh_push_config(info, config)
+        lab.mclag_status = f"MCLAG: {node_name} に vsx-sync を投入中..."
+        ok = await _ssh_push_config(info, config)
+        if not ok:
+            failed.append(node_name)
 
-    lab.mclag_status = "MCLAG (vsx-sync) 設定投入完了 — LAG が up になるまで数十秒かかります"
+    if failed:
+        lab.mclag_status = f"MCLAG 設定投入失敗: {', '.join(failed)} — ログインして手動確認してください"
+    else:
+        lab.mclag_status = "MCLAG (vsx-sync) 設定投入完了 — LAG が up になるまで数十秒かかります"
 
 
 # ── 静的ページ ────────────────────────────────────────────────
