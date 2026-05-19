@@ -1049,6 +1049,11 @@ function enterBroadcastMode(nodeNames) {
 
     requestAnimationFrame(() => {
       for (const s of _broadcastPopupSessions) s.fitAddon.fit();
+      // 最初のターミナルを自動フォーカス
+      if (_broadcastPopupSessions.length > 0) {
+        _broadcastPopupSessions[0].term.focus();
+        container.querySelector('.broadcast-term-col')?.classList.add('focused');
+      }
     });
   }, 100);
 
