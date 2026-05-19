@@ -309,17 +309,18 @@ vsx
             ],
         },
     },
-    # ── VSX Spine-Leaf ─────────────────────────────────────────────────────────
-    # MCLAG (vsx-sync) は startup-config では VSX 確立前に適用されるため動作しない。
-    # シングルアップリンク + VSX ISL 経由の L2 転送で疎通を確認する構成とする。
+    # ── VSX Spine-Leaf (MCLAG) ────────────────────────────────────────────────
+    # vsx-sync は VSX 確立後でないと動作しないため、startup-config では LAG のみ設定し、
+    # デプロイ後に VSX In-Sync を確認してから mclag_configs を SSH で自動投入する。
     {
         "id": "vsx_spine_leaf",
-        "name": "VSX Spine-Leaf",
+        "name": "VSX Spine-Leaf (MCLAG)",
         "description": (
-            "VSX ペア (spine1/spine2) をスパインとした Spine-Leaf 4台構成。"
-            "leaf1→spine1、leaf2→spine2 のシングルアップリンク。"
-            "VLAN10 (10.10.10.0/24) の疎通が VSX ISL を経由して確認できる構成"
+            "VSX ペア (spine1/spine2) をスパインとした MCLAG Spine-Leaf 4台構成。"
+            "leaf1/leaf2 は spine1/spine2 にデュアルホーム (VSX LAG)。"
+            "VSX In-Sync 確認後に vsx-sync を自動投入。VLAN10 (10.10.10.0/24)"
         ),
+        "vsx_primary": "spine1",
         "nodes": [
             {"name": "spine1", "node_type": "aruba_aoscx"},
             {"name": "spine2", "node_type": "aruba_aoscx"},
@@ -332,17 +333,18 @@ vsx
             {"source": "spine1", "source_port": 3, "target": "spine2", "target_port": 3},
             # VSX Keepalive
             {"source": "spine1", "source_port": 4, "target": "spine2", "target_port": 4},
-            # シングルアップリンク: leaf1→spine1、leaf2→spine2
+            # MCLAG デュアルホーム: leaf1 → spine1/spine2
             {"source": "spine1", "source_port": 5, "target": "leaf1", "target_port": 2},
-            {"source": "spine2", "source_port": 5, "target": "leaf2", "target_port": 2},
+            {"source": "spine2", "source_port": 5, "target": "leaf1", "target_port": 3},
+            # MCLAG デュアルホーム: leaf2 → spine1/spine2
+            {"source": "spine1", "source_port": 6, "target": "leaf2", "target_port": 2},
+            {"source": "spine2", "source_port": 6, "target": "leaf2", "target_port": 3},
         ],
         "configs": {
             "spine1": """\
 ip routing
 vlan 10
     name VLAN10
-vlan 20
-    name VLAN20
 interface lag 1
     no shutdown
     no routing
@@ -363,23 +365,34 @@ vsx
     inter-switch-link lag 1
     keepalive peer 192.168.255.2 source 192.168.255.1
     role primary
-interface 1/1/5
+interface lag 10
     no shutdown
     no routing
-    vlan access 10
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+interface 1/1/5
+    no shutdown
+    lag 10
+interface lag 20
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+interface 1/1/6
+    no shutdown
+    lag 20
 interface vlan 10
     ip address 10.10.10.252/24
     no shutdown
     active-gateway ip mac 02:00:00:00:00:0a
     active-gateway ip 10.10.10.254
-ip route 10.10.20.0/24 192.168.255.2
 """,
             "spine2": """\
 ip routing
 vlan 10
     name VLAN10
-vlan 20
-    name VLAN20
 interface lag 1
     no shutdown
     no routing
@@ -400,25 +413,46 @@ vsx
     inter-switch-link lag 1
     keepalive peer 192.168.255.1 source 192.168.255.2
     role secondary
-interface 1/1/5
+interface lag 10
     no shutdown
     no routing
-    vlan access 20
-interface vlan 20
-    ip address 10.10.20.253/24
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+interface 1/1/5
     no shutdown
-    active-gateway ip mac 02:00:00:00:00:0b
-    active-gateway ip 10.10.20.254
-ip route 10.10.10.0/24 192.168.255.1
+    lag 10
+interface lag 20
+    no shutdown
+    no routing
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+interface 1/1/6
+    no shutdown
+    lag 20
+interface vlan 10
+    ip address 10.10.10.253/24
+    no shutdown
+    active-gateway ip mac 02:00:00:00:00:0a
+    active-gateway ip 10.10.10.254
 """,
             "leaf1": """\
 ip routing
 vlan 10
     name VLAN10
-interface 1/1/2
+interface lag 1
     no shutdown
     no routing
-    vlan access 10
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+interface 1/1/2
+    no shutdown
+    lag 1
+interface 1/1/3
+    no shutdown
+    lag 1
 interface vlan 10
     ip address 10.10.10.1/24
     no shutdown
@@ -426,42 +460,65 @@ ip route 0.0.0.0/0 10.10.10.254
 """,
             "leaf2": """\
 ip routing
-vlan 20
-    name VLAN20
-interface 1/1/2
+vlan 10
+    name VLAN10
+interface lag 1
     no shutdown
     no routing
-    vlan access 20
-interface vlan 20
-    ip address 10.10.20.2/24
+    vlan trunk native 1
+    vlan trunk allowed 10
+    lacp mode active
+interface 1/1/2
     no shutdown
-ip route 0.0.0.0/0 10.10.20.254
+    lag 1
+interface 1/1/3
+    no shutdown
+    lag 1
+interface vlan 10
+    ip address 10.10.10.2/24
+    no shutdown
+ip route 0.0.0.0/0 10.10.10.254
+""",
+        },
+        # VSX In-Sync 確認後に自動投入する MCLAG 設定
+        "mclag_configs": {
+            "spine1": """\
+interface lag 10
+    vsx-sync
+interface lag 20
+    vsx-sync
+""",
+            "spine2": """\
+interface lag 10
+    vsx-sync
+interface lag 20
+    vsx-sync
 """,
         },
         "verification": [
             "spine1/spine2 で VSX セッションが Established になること",
-            "leaf1 (VLAN10:10.10.10.1) → leaf2 (VLAN20:10.10.20.2) の L3 ping が通ること",
-            "経路: leaf1→spine1→Keepaliveリンク→spine2→leaf2",
+            "デプロイログに 'MCLAG (vsx-sync) 設定投入完了' が表示されること",
+            "leaf1/leaf2 で show lacp aggregates が Established になること",
+            "leaf1 → leaf2 へ ping 10.10.10.2 が通ること",
+            "Anycast gateway (10.10.10.254) への ping が通ること",
         ],
         "test_commands": {
             "spine1": [
                 "show vsx status",
-                "show ip route",
-                "show interface 1/1/5",
+                "show lacp aggregates",
             ],
             "spine2": [
                 "show vsx status",
-                "show ip route",
-                "show interface 1/1/5",
+                "show lacp aggregates",
             ],
             "leaf1": [
+                "show lacp aggregates",
                 "show interface vlan 10",
+                "ping 10.10.10.2 repetitions 5",
                 "ping 10.10.10.254 repetitions 3",
-                "ping 10.10.20.2 repetitions 5",
             ],
             "leaf2": [
-                "show interface vlan 20",
-                "ping 10.10.20.254 repetitions 3",
+                "show lacp aggregates",
                 "ping 10.10.10.1 repetitions 5",
             ],
         },

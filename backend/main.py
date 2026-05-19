@@ -21,6 +21,103 @@ app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")
 
 lab = LabManager()
 _deploy_lock = asyncio.Lock()
+_mclag_task: Optional[asyncio.Task] = None
+
+
+# ── MCLAG バックグラウンドタスク ──────────────────────────────
+
+async def _ssh_push_config(info: dict, config: str) -> bool:
+    """SSH で configure terminal → コンフィグ投入 → write memory"""
+    lines = [l.rstrip() for l in config.splitlines()
+             if l.strip() and not l.strip().startswith('#')]
+    try:
+        async with asyncssh.connect(
+            info["mgmt_ip"],
+            port=info.get("ssh_port", 22),
+            username=info["ssh_user"],
+            password=info["ssh_pass"],
+            known_hosts=None,
+            connect_timeout=30,
+        ) as conn:
+            async with conn.create_process(term_type="vt100", term_size=(220, 50)) as proc:
+                await asyncio.sleep(3.0)
+                proc.stdin.write("configure terminal\n")
+                await asyncio.sleep(1.0)
+                for line in lines:
+                    proc.stdin.write(line + "\n")
+                    await asyncio.sleep(0.1)
+                proc.stdin.write("end\n")
+                await asyncio.sleep(1.0)
+                proc.stdin.write("write memory\n")
+                await asyncio.sleep(5.0)
+                proc.stdin.write("exit\n")
+                await asyncio.sleep(0.5)
+        return True
+    except Exception:
+        return False
+
+
+async def _vsx_mclag_background():
+    """VSX In-Sync 確認後に MCLAG (vsx-sync) 設定を SSH で自動投入する"""
+    if not lab.vsx_primary or not lab.mclag_configs:
+        return
+
+    lab.mclag_status = "VSX In-Sync 待機中..."
+
+    # VSX primary に SSH して ISL channel In-Sync を確認 (最大 5分)
+    for _ in range(30):
+        await asyncio.sleep(10)
+        if not lab.deployed:
+            lab.mclag_status = ""
+            return
+        info = lab.get_ssh_info(lab.vsx_primary)
+        if not info or not info.get("mgmt_ip"):
+            continue
+        try:
+            async with asyncssh.connect(
+                info["mgmt_ip"],
+                port=info.get("ssh_port", 22),
+                username=info["ssh_user"],
+                password=info["ssh_pass"],
+                known_hosts=None,
+                connect_timeout=10,
+            ) as conn:
+                async with conn.create_process(
+                    term_type="vt100", term_size=(220, 50)
+                ) as proc:
+                    await asyncio.sleep(3.0)
+                    proc.stdin.write("show vsx status\n")
+                    await asyncio.sleep(3.0)
+                    data = b""
+                    try:
+                        while True:
+                            chunk = await asyncio.wait_for(
+                                proc.stdout.read(4096), timeout=1.0)
+                            if not chunk:
+                                break
+                            data += chunk
+                    except asyncio.TimeoutError:
+                        pass
+                    if b"In-Sync" in data:
+                        break
+        except Exception:
+            continue
+    else:
+        lab.mclag_status = "VSX In-Sync 待機タイムアウト (5分)"
+        return
+
+    lab.mclag_status = "VSX In-Sync 確認 → MCLAG (vsx-sync) 設定投入中..."
+    await asyncio.sleep(10)  # VSX 安定化のため追加待機
+
+    for node_name, config in lab.mclag_configs.items():
+        if not lab.deployed:
+            return
+        info = lab.get_ssh_info(node_name)
+        if not info or not info.get("mgmt_ip"):
+            continue
+        await _ssh_push_config(info, config)
+
+    lab.mclag_status = "MCLAG (vsx-sync) 設定投入完了 — LAG が up になるまで数十秒かかります"
 
 
 # ── 静的ページ ────────────────────────────────────────────────
@@ -137,12 +234,18 @@ async def remove_link(link_id: str):
 
 @app.post("/api/deploy")
 async def deploy():
+    global _mclag_task
     if _deploy_lock.locked():
         raise HTTPException(409, "デプロイが既に進行中です")
     if not lab.nodes:
         raise HTTPException(400, "ノードが1つも追加されていません")
+    if _mclag_task and not _mclag_task.done():
+        _mclag_task.cancel()
+    lab.mclag_status = ""
     async with _deploy_lock:
         success, output = await lab.deploy()
+    if success and lab.mclag_configs:
+        _mclag_task = asyncio.create_task(_vsx_mclag_background())
     return {
         "success": success,
         "output": output,
@@ -153,6 +256,10 @@ async def deploy():
 
 @app.post("/api/destroy")
 async def destroy():
+    global _mclag_task
+    if _mclag_task and not _mclag_task.done():
+        _mclag_task.cancel()
+        _mclag_task = None
     success, output = await lab.destroy()
     return {"success": success, "output": output}
 
@@ -163,6 +270,7 @@ async def get_status():
         "deployed": lab.deployed,
         "deployed_nodes": lab.deployed_nodes,
         "has_pending_configs": bool(lab.startup_configs),
+        "mclag_status": lab.mclag_status,
     }
 
 
@@ -495,6 +603,9 @@ async def load_template(template_id: str):
             "links":   links,
             "configs": tmpl.get("configs", {}),
         })
+        lab.mclag_configs = tmpl.get("mclag_configs", {})
+        lab.vsx_primary   = tmpl.get("vsx_primary", "")
+        lab.mclag_status  = ""
         return lab.to_dict()
     except ValueError as e:
         raise HTTPException(400, str(e))

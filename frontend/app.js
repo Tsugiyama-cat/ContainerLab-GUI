@@ -684,11 +684,18 @@ $('btn-destroy').addEventListener('click', async () => {
 });
 
 // ── ステータス更新 ─────────────────────────────────────────────────────────
+let _lastMclagStatus = '';
 async function refreshStatus() {
   try {
     const s = await api('GET', '/api/status');
     state.deployed = s.deployed;
     state.deployedNodes = s.deployed_nodes;
+    if (s.mclag_status && s.mclag_status !== _lastMclagStatus) {
+      const lvl = s.mclag_status.includes('完了') ? 'ok'
+                : s.mclag_status.includes('タイムアウト') ? 'error' : 'info';
+      log(`[MCLAG] ${s.mclag_status}`, lvl);
+      _lastMclagStatus = s.mclag_status;
+    }
     updateStatusBadge();
     updateNodeColors();
     renderDeployedList();
