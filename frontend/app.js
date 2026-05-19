@@ -699,6 +699,7 @@ async function refreshStatus() {
     updateStatusBadge();
     updateNodeColors();
     renderDeployedList();
+    _updateBroadcastBtn();
     if (state.selectedNodeId) renderDetailPanel(state.selectedNodeId, 'node');
     else if (state.selectedEdgeId) renderDetailPanel(state.selectedEdgeId, 'edge');
   } catch (e) { log(`ステータス取得エラー: ${e.message}`, 'error'); }
@@ -817,8 +818,8 @@ function stopPolling() {
 let _tabCounter    = 0;
 let _activeTab     = 'log';
 const _cliSessions = {};
-let _broadcastMode    = false;
-let _broadcastSessions = new Set(); // 一括入力対象の tabId セット
+let _broadcastMode         = false;
+let _broadcastPopupSessions = []; // { term, fitAddon, ws, nodeName }
 
 function openCLITab(nodeName, sshPort) {
   const port  = sshPort || 22;
@@ -882,29 +883,18 @@ function openCLITab(nodeName, sshPort) {
   };
 
   term.onData(data => {
-    if (_broadcastMode) {
-      for (const tid of _broadcastSessions) {
-        const s = _cliSessions[tid];
-        if (s?.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
-      }
-    } else {
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
-    }
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
   });
   term.onResize(({ cols, rows }) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
   });
 
   _cliSessions[tabId] = { term, fitAddon, ws, nodeName };
-  _updateBroadcastBtn();
   switchTab(tabId);
   log(`CLI タブ起動: ${nodeName}`, 'ok');
 }
 
 function switchTab(tabId) {
-  // broadcast モード中にタブを切り替えたら終了（exitBroadcastMode は switchTab を呼ばない）
-  if (_broadcastMode) exitBroadcastMode();
-
   document.querySelectorAll('.bottom-tab').forEach(b => b.classList.remove('active'));
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
 
@@ -920,24 +910,6 @@ function switchTab(tabId) {
 }
 
 function closeCLITab(tabId) {
-  if (_broadcastMode && _broadcastSessions.has(tabId)) {
-    // このタブをブロードキャスト対象から除去
-    $(`tab-pane-${tabId}`)?.querySelector('[data-broadcast-header]')?.remove();
-    $(`tab-pane-${tabId}`)?.classList.remove('broadcast-selected', 'focused');
-    _broadcastSessions.delete(tabId);
-
-    if (_broadcastSessions.size < 2) {
-      // 残り1台以下 → 一括入力を終了
-      exitBroadcastMode();
-      // switchTab はこのあと下で呼ぶ
-    } else {
-      // まだ複数台 → 残りを再 fit
-      setTimeout(() => {
-        for (const tid of _broadcastSessions) _cliSessions[tid]?.fitAddon.fit();
-      }, 50);
-    }
-  }
-
   const session = _cliSessions[tabId];
   if (session) {
     session.ws.close();
@@ -946,112 +918,157 @@ function closeCLITab(tabId) {
   }
   $(`tab-btn-${tabId}`)?.remove();
   $(`tab-pane-${tabId}`)?.remove();
-  if (!_broadcastMode && (_activeTab === tabId || _activeTab === 'broadcast')) switchTab('log');
+  if (_activeTab === tabId) switchTab('log');
   _updateBroadcastBtn();
 }
 
-// ── 一括入力モード ────────────────────────────────────────────────────────
+// ── 一括入力モード（ポップアップ + 独立 SSH 接続）────────────────────────
 function _updateBroadcastBtn() {
-  const btn   = $('btn-broadcast');
-  const count = Object.keys(_cliSessions).length;
-  if (_broadcastMode && _broadcastSessions.size === 0) {
-    _broadcastMode = false;
-  }
-  btn.disabled = count <= 1;
+  const btn        = $('btn-broadcast');
+  const readyCount = Object.values(state.deployedNodes || {}).filter(d => d.mgmt_ip).length;
+  btn.disabled     = readyCount < 2;
   btn.classList.toggle('broadcast-active', _broadcastMode);
-  btn.textContent = _broadcastMode
-    ? `一括入力 ON (${_broadcastSessions.size}台)`
+  btn.textContent  = _broadcastMode
+    ? `一括入力 ON (${_broadcastPopupSessions.length}台)`
     : '一括入力';
 }
 
 function showBroadcastSelectModal() {
   const list = $('broadcast-node-list');
   list.innerHTML = '';
-  for (const [tabId, session] of Object.entries(_cliSessions)) {
+  const nodeNames = Object.entries(state.deployedNodes || {})
+    .filter(([, d]) => d.mgmt_ip)
+    .map(([name]) => name);
+  for (const name of nodeNames) {
     const label = document.createElement('label');
     label.className = 'node-check-item';
-    label.innerHTML = `<input type="checkbox" value="${tabId}" checked> ${session.nodeName}`;
+    label.innerHTML = `<input type="checkbox" value="${name}" checked> ${name}`;
     list.appendChild(label);
   }
   $('modal-broadcast-select').classList.add('visible');
 }
 
-function enterBroadcastMode(selectedTabIds) {
-  _broadcastMode     = true;
-  _broadcastSessions = new Set(selectedTabIds);
+function _makeBroadcastTerm() {
+  return new Terminal({
+    cursorBlink: true,
+    fontSize: 12,
+    fontFamily: "'Cascadia Code', 'Fira Code', Consolas, monospace",
+    theme: {
+      background: '#1a1d23', foreground: '#d4d8e2', cursor: '#4f8ef7',
+      selectionBackground: 'rgba(79,142,247,0.3)',
+      black: '#1a1d23', brightBlack: '#4a5060',
+      red: '#e05252',   brightRed: '#ff6b6b',
+      green: '#4caf7d', brightGreen: '#6dda9f',
+      yellow: '#f0a940',brightYellow: '#ffc261',
+      blue: '#4f8ef7',  brightBlue: '#6aa3ff',
+      magenta: '#b07ceb',brightMagenta: '#c89aff',
+      cyan: '#4ec9b0',  brightCyan: '#70ddc6',
+      white: '#d4d8e2', brightWhite: '#ffffff',
+    },
+  });
+}
 
-  // 各ペインにヘッダーを差し込み broadcast-selected クラスを付与
-  for (const tabId of selectedTabIds) {
-    const session = _cliSessions[tabId];
-    const pane    = $(`tab-pane-${tabId}`);
-    if (!session || !pane) continue;
+function enterBroadcastMode(nodeNames) {
+  _broadcastMode         = true;
+  _broadcastPopupSessions = [];
 
-    pane.classList.add('broadcast-selected');
+  const container = $('broadcast-terminals');
+  container.innerHTML = '';
 
+  for (const nodeName of nodeNames) {
+    // ノードの SSH ポートを _nodeData から取得
+    let sshPort = 22;
+    _nodeData.forEach(nd => { if (nd.name === nodeName) sshPort = nd.ssh_port || 22; });
+
+    // カラム DOM 構築
+    const col = document.createElement('div');
+    col.className = 'broadcast-term-col';
     const header = document.createElement('div');
-    header.className = 'broadcast-col-header';
-    header.dataset.broadcastHeader = 'true';
-    header.textContent = session.nodeName;
-    pane.insertBefore(header, pane.firstChild);
+    header.className = 'broadcast-term-header';
+    header.textContent = nodeName;
+    const inner = document.createElement('div');
+    inner.className = 'broadcast-term-inner';
+    col.appendChild(header);
+    col.appendChild(inner);
+    container.appendChild(col);
 
-    // フォーカス時に該当ペインをハイライト
-    session.term.onFocus(() => {
-      document.querySelectorAll('.broadcast-selected').forEach(p => p.classList.remove('focused'));
-      pane.classList.add('focused');
+    // 新規 xterm + WebSocket（_cliSessions とは独立）
+    const term     = _makeBroadcastTerm();
+    const fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(inner);
+
+    const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(
+      `${wsProto}//${location.host}/ws/terminal/${encodeURIComponent(nodeName)}?port=${sshPort}`
+    );
+    ws.onopen    = () => { fitAddon.fit(); };
+    ws.onclose   = () => term.write('\r\n\x1b[33m--- セッション終了 ---\x1b[0m\r\n');
+    ws.onerror   = () => term.write('\r\n\x1b[31mWebSocket エラー\x1b[0m\r\n');
+    ws.onmessage = ev => {
+      try { const m = JSON.parse(ev.data); if (m.type === 'output') term.write(m.data); }
+      catch { term.write(ev.data); }
+    };
+
+    // 入力を全ポップアップセッションにブロードキャスト
+    term.onData(data => {
+      for (const s of _broadcastPopupSessions) {
+        if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
+      }
     });
+    term.onResize(({ cols, rows }) => {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+    });
+
+    // フォーカスしたカラムをハイライト
+    term.onFocus(() => {
+      container.querySelectorAll('.broadcast-term-col').forEach(c => c.classList.remove('focused'));
+      col.classList.add('focused');
+    });
+
+    _broadcastPopupSessions.push({ term, fitAddon, ws, nodeName });
   }
 
-  // bottom-content を横並びモードに
-  $('bottom-content').classList.add('broadcast-on');
-  // 全タブボタンの active を外し、仮想タブ 'broadcast' をアクティブとする
-  document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.bottom-tab').forEach(b => b.classList.remove('active'));
-  _activeTab = 'broadcast';
-  $('btn-clear-log').style.display = 'none';
+  $('broadcast-modal-title').textContent = `一括入力 — ${nodeNames.length} 台: ${nodeNames.join(', ')}`;
+  $('modal-broadcast-view').classList.add('visible');
 
   setTimeout(() => {
-    for (const tabId of _broadcastSessions) _cliSessions[tabId]?.fitAddon.fit();
-  }, 50);
+    for (const s of _broadcastPopupSessions) s.fitAddon.fit();
+  }, 100);
 
   _updateBroadcastBtn();
-  const names = selectedTabIds.map(t => _cliSessions[t]?.nodeName).join(', ');
-  log(`一括入力 ON — ${selectedTabIds.length} 台: ${names}`, 'warn');
+  log(`一括入力 ON — ${nodeNames.length} 台: ${nodeNames.join(', ')}`, 'warn');
 }
 
 function exitBroadcastMode() {
   if (!_broadcastMode) return;
   _broadcastMode = false;
-
-  // ヘッダー削除・クラスをリセット
-  document.querySelectorAll('.broadcast-selected').forEach(p => {
-    p.querySelector('[data-broadcast-header]')?.remove();
-    p.classList.remove('broadcast-selected', 'focused');
-  });
-  $('bottom-content').classList.remove('broadcast-on');
-  _broadcastSessions.clear();
+  for (const s of _broadcastPopupSessions) {
+    try { s.ws.close(); } catch (_) {}
+    try { s.term.dispose(); } catch (_) {}
+  }
+  _broadcastPopupSessions = [];
+  $('modal-broadcast-view').classList.remove('visible');
   _updateBroadcastBtn();
   log('一括入力 OFF', 'info');
 }
 
 $('btn-broadcast').addEventListener('click', () => {
-  if (_broadcastMode) {
-    exitBroadcastMode();
-    switchTab('log');
-    return;
-  }
+  if (_broadcastMode) { exitBroadcastMode(); return; }
   showBroadcastSelectModal();
 });
+$('btn-broadcast-close').addEventListener('click', exitBroadcastMode);
 
 $('btn-broadcast-cancel').addEventListener('click', () => {
   $('modal-broadcast-select').classList.remove('visible');
 });
 
 $('btn-broadcast-confirm').addEventListener('click', () => {
-  const checked = [...$('broadcast-node-list').querySelectorAll('input[type=checkbox]:checked')];
-  const ids = checked.map(c => c.value);
+  const checked   = [...$('broadcast-node-list').querySelectorAll('input[type=checkbox]:checked')];
+  const nodeNames = checked.map(c => c.value);
   $('modal-broadcast-select').classList.remove('visible');
-  if (ids.length < 2) { log('2台以上選択してください', 'warn'); return; }
-  enterBroadcastMode(ids);
+  if (nodeNames.length < 2) { log('2台以上選択してください', 'warn'); return; }
+  enterBroadcastMode(nodeNames);
 });
 
 // ── ボトムパネル リサイズ ──────────────────────────────────────────────────
@@ -1072,7 +1089,7 @@ $('btn-broadcast-confirm').addEventListener('click', () => {
     const newH = Math.max(80, Math.min(window.innerHeight * 0.7, startH + dy));
     panel.style.height = newH + 'px';
     if (_broadcastMode) {
-      for (const tid of _broadcastSessions) _cliSessions[tid]?.fitAddon.fit();
+      for (const s of _broadcastPopupSessions) s.fitAddon.fit();
     } else if (_activeTab !== 'log' && _cliSessions[_activeTab]) {
       _cliSessions[_activeTab].fitAddon.fit();
     }
@@ -1187,6 +1204,7 @@ document.addEventListener('keydown', async e => {
     $('modal-bulk-cmd').classList.remove('visible');
     $('modal-ping').classList.remove('visible');
     $('modal-broadcast-select').classList.remove('visible');
+    exitBroadcastMode();
     closeTplModal();
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && !isInputFocused()) {

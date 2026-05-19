@@ -342,30 +342,53 @@ html, body {
   pointer-events: none;
 }
 
-/* 一括入力 横並びビュー
-   DOM 要素を動かさず #bottom-content にクラスを付けて制御する */
-#bottom-content.broadcast-on {
-  display: flex;
-  flex-direction: row;
-}
-/* 選択されていないペインは非表示 */
-#bottom-content.broadcast-on .tab-pane { display: none; }
-/* 選択されたペインを横に並べる */
-#bottom-content.broadcast-on .tab-pane.broadcast-selected {
+/* 一括入力ポップアップ */
+#modal-broadcast-view .modal-box {
+  width: 95vw;
+  max-width: 95vw;
+  height: 82vh;
   display: flex;
   flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+}
+.broadcast-titlebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+  background: var(--surface2);
+}
+.broadcast-titlebar-label {
+  font-size: 11px;
+  color: #f0a940;
+  font-family: Consolas, monospace;
+  letter-spacing: 0.04em;
+}
+#broadcast-terminals {
+  display: flex;
+  flex-direction: row;
   flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.broadcast-term-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   border-right: 1px solid var(--border);
   min-width: 0;
   overflow: hidden;
 }
-/* 入力中ペインをアクセントカラーで強調 */
-#bottom-content.broadcast-on .tab-pane.broadcast-selected.focused {
+.broadcast-term-col:last-child { border-right: none; }
+.broadcast-term-col.focused {
   outline: 2px solid var(--accent);
   outline-offset: -2px;
   z-index: 1;
 }
-.broadcast-col-header {
+.broadcast-term-header {
   font-size: 10px;
   font-family: Consolas, monospace;
   color: #f0a940;
@@ -374,13 +397,16 @@ html, body {
   padding: 3px 8px;
   text-align: center;
   flex-shrink: 0;
-  letter-spacing: 0.04em;
   transition: background .15s, color .15s, border-bottom-color .15s;
 }
-#bottom-content.broadcast-on .tab-pane.broadcast-selected.focused .broadcast-col-header {
+.broadcast-term-col.focused .broadcast-term-header {
   background: rgba(79,142,247,0.15);
   color: #6aa3ff;
   border-bottom-color: rgba(79,142,247,0.4);
+}
+.broadcast-term-inner {
+  flex: 1;
+  min-height: 0;
 }
 
 #bottom-content {

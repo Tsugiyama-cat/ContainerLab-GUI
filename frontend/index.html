@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContainerLab GUI v1.1</title>
-  <link rel="stylesheet" href="/static/style.css?v=20">
+  <link rel="stylesheet" href="/static/style.css?v=21">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
   <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -234,7 +234,7 @@
 <!-- 一括入力 ノード選択モーダル -->
 <div class="modal-overlay" id="modal-broadcast-select">
   <div class="modal-box" style="max-width:320px">
-    <h3>一括入力するCLIを選択</h3>
+    <h3>一括入力するノードを選択</h3>
     <div class="form-group">
       <div id="broadcast-node-list" class="node-check-grid"></div>
     </div>
@@ -242,6 +242,17 @@
       <button class="btn btn-ghost"   id="btn-broadcast-cancel">キャンセル</button>
       <button class="btn btn-primary" id="btn-broadcast-confirm">開始</button>
     </div>
+  </div>
+</div>
+
+<!-- 一括入力 ターミナルビュー -->
+<div class="modal-overlay" id="modal-broadcast-view">
+  <div class="modal-box">
+    <div class="broadcast-titlebar">
+      <span class="broadcast-titlebar-label" id="broadcast-modal-title">一括入力</span>
+      <button class="btn btn-ghost btn-sm" id="btn-broadcast-close">✕ 閉じる</button>
+    </div>
+    <div id="broadcast-terminals"></div>
   </div>
 </div>
 
@@ -280,6 +291,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=20"></script>
+<script src="/static/app.js?v=21"></script>
 </body>
 </html>
