@@ -244,6 +244,12 @@ class LabManager:
         # 残骸コンテナを Docker API で直接強制削除
         await asyncio.get_event_loop().run_in_executor(None, self._force_cleanup_lab)
 
+        # clab が管理するノード設定ディレクトリを削除して startup-config を確実に上書きさせる
+        import shutil as _shutil
+        clab_node_dir = WORK_DIR / f"clab-{LAB_NAME}"
+        if clab_node_dir.exists():
+            _shutil.rmtree(clab_node_dir)
+
         proc = await asyncio.create_subprocess_exec(
             "clab", "deploy", "-t", str(self._topo_path()),
             stdout=asyncio.subprocess.PIPE,
