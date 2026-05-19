@@ -1543,6 +1543,12 @@ async function init() {
   try {
     await loadNodeTypes();
     await loadTemplates();
+    // ブラウザリロード後もバックエンドのトポロジーを復元
+    const topo = await api('GET', '/api/topology');
+    applyTopology(topo);
+    if (topo.nodes.length > 0) {
+      log(`トポロジーを復元しました (ノード: ${topo.nodes.length}, リンク: ${topo.links.length})`, 'ok');
+    }
     await refreshStatus();
     if (state.deployed && !allNodesReady()) startPolling();
     updateHint();
