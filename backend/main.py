@@ -110,21 +110,29 @@ async def _vsx_mclag_background():
         lab.mclag_status = "VSX In-Sync 待機タイムアウト (5分)"
         return
 
-    lab.mclag_status = "VSX In-Sync 確認 → MCLAG (vsx-sync) 設定投入中..."
+    lab.mclag_status = "VSX In-Sync 確認 → MCLAG (vsx-sync) 設定を全ノードへ同時投入中..."
     await asyncio.sleep(10)  # VSX 安定化のため追加待機
 
-    failed = []
-    for node_name, config in lab.mclag_configs.items():
-        if not lab.deployed:
-            return
+    # spine1/spine2 に同時並列投入 — 順番にやると片側だけ LACP 確立して
+    # もう片側が "Disabled by LACP or LAG" になるため
+    async def _push_node(node_name: str, config: str) -> tuple[str, bool]:
         info = lab.get_ssh_info(node_name)
         if not info or not info.get("mgmt_ip"):
-            failed.append(f"{node_name}(IP未取得)")
-            continue
-        lab.mclag_status = f"MCLAG: {node_name} に vsx-sync を投入中..."
+            return node_name, False
         ok = await _ssh_push_config(info, config)
-        if not ok:
-            failed.append(node_name)
+        return node_name, ok
+
+    results = await asyncio.gather(
+        *[_push_node(n, c) for n, c in lab.mclag_configs.items()],
+        return_exceptions=True,
+    )
+
+    failed = []
+    for r in results:
+        if isinstance(r, Exception):
+            failed.append("(例外)")
+        elif not r[1]:
+            failed.append(r[0])
 
     if failed:
         lab.mclag_status = f"MCLAG 設定投入失敗: {', '.join(failed)} — ログインして手動確認してください"
