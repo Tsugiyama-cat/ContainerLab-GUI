@@ -1029,8 +1029,13 @@ function enterBroadcastMode(nodeNames) {
         };
 
         term.onData(data => {
+          log(`[DBG] onData fired: ${nodeName} sessions=${_broadcastPopupSessions.length}`, 'info');
           for (const s of _broadcastPopupSessions) {
-            if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
+            if (s.ws.readyState === WebSocket.OPEN) {
+              s.ws.send(JSON.stringify({ type: 'input', data }));
+            } else {
+              log(`[DBG] ${s.nodeName} ws.readyState=${s.ws.readyState}`, 'warn');
+            }
           }
         });
         term.onResize(({ cols, rows }) => {
