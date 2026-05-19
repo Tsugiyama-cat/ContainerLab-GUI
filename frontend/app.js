@@ -999,45 +999,58 @@ function enterBroadcastMode(nodeNames) {
 
   // レイアウトが確定してからターミナルを全台まとめて初期化
   setTimeout(() => {
+    const rect = container.getBoundingClientRect();
+    const colW  = Math.floor(rect.width  / colDefs.length);
+    const colH  = Math.max(100, rect.height);
+
     for (const { nodeName, sshPort, col, inner } of colDefs) {
-      const term     = _makeBroadcastTerm();
-      const fitAddon = new FitAddon.FitAddon();
-      term.loadAddon(fitAddon);
-      term.open(inner);
+      // flex 計算に頼らず JavaScript でサイズを明示的に設定
+      const headerH = (inner.previousElementSibling?.offsetHeight) || 22;
+      inner.style.width    = colW + 'px';
+      inner.style.height   = Math.max(60, colH - headerH) + 'px';
+      inner.style.overflow = 'hidden';
 
-      const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const ws = new WebSocket(
-        `${wsProto}//${location.host}/ws/terminal/${encodeURIComponent(nodeName)}?port=${sshPort}`
-      );
-      ws.onopen    = () => { fitAddon.fit(); };
-      ws.onclose   = () => term.write('\r\n\x1b[33m--- セッション終了 ---\x1b[0m\r\n');
-      ws.onerror   = () => term.write('\r\n\x1b[31mWebSocket エラー\x1b[0m\r\n');
-      ws.onmessage = ev => {
-        try { const m = JSON.parse(ev.data); if (m.type === 'output') term.write(m.data); }
-        catch { term.write(ev.data); }
-      };
+      try {
+        const term     = _makeBroadcastTerm();
+        const fitAddon = new FitAddon.FitAddon();
+        term.loadAddon(fitAddon);
+        term.open(inner);
 
-      term.onData(data => {
-        for (const s of _broadcastPopupSessions) {
-          if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
-        }
-      });
-      term.onResize(({ cols, rows }) => {
-        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-      });
-      term.onFocus(() => {
-        container.querySelectorAll('.broadcast-term-col').forEach(c => c.classList.remove('focused'));
-        col.classList.add('focused');
-      });
+        const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(
+          `${wsProto}//${location.host}/ws/terminal/${encodeURIComponent(nodeName)}?port=${sshPort}`
+        );
+        ws.onopen    = () => { fitAddon.fit(); };
+        ws.onclose   = () => term.write('\r\n\x1b[33m--- セッション終了 ---\x1b[0m\r\n');
+        ws.onerror   = () => term.write('\r\n\x1b[31mWebSocket エラー\x1b[0m\r\n');
+        ws.onmessage = ev => {
+          try { const m = JSON.parse(ev.data); if (m.type === 'output') term.write(m.data); }
+          catch { term.write(ev.data); }
+        };
 
-      _broadcastPopupSessions.push({ term, fitAddon, ws, nodeName });
+        term.onData(data => {
+          for (const s of _broadcastPopupSessions) {
+            if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
+          }
+        });
+        term.onResize(({ cols, rows }) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
+        });
+        term.onFocus(() => {
+          container.querySelectorAll('.broadcast-term-col').forEach(c => c.classList.remove('focused'));
+          col.classList.add('focused');
+        });
+
+        _broadcastPopupSessions.push({ term, fitAddon, ws, nodeName });
+      } catch(e) {
+        log(`[一括入力] ${nodeName} 初期化エラー: ${e.message}`, 'error');
+      }
     }
 
-    // 全台 open 後にまとめて fit（各端末の幅が確定した状態で計算させる）
     requestAnimationFrame(() => {
       for (const s of _broadcastPopupSessions) s.fitAddon.fit();
     });
-  }, 50);
+  }, 100);
 
   _updateBroadcastBtn();
   log(`一括入力 ON — ${nodeNames.length} 台: ${nodeNames.join(', ')}`, 'warn');
