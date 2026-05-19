@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContainerLab GUI v1.1</title>
-  <link rel="stylesheet" href="/static/style.css?v=16">
+  <link rel="stylesheet" href="/static/style.css?v=17">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
   <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -78,6 +78,7 @@
   <div id="bottom-tabbar">
     <div class="bottom-tab active" id="tab-btn-log" data-tab="log">ログ</div>
     <div class="tab-spacer"></div>
+    <button class="btn-tab-action" id="btn-broadcast" title="全CLIタブに同時入力">全台入力</button>
     <button class="btn-tab-action" id="btn-clear-log">クリア</button>
   </div>
   <div id="bottom-content">
@@ -265,6 +266,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=16"></script>
+<script src="/static/app.js?v=17"></script>
 </body>
 </html>

@@ -331,6 +331,11 @@ html, body {
   cursor: pointer;
 }
 .btn-tab-action:hover { color: var(--text); }
+.btn-tab-action.broadcast-active {
+  color: #f0a940;
+  border-color: #f0a940;
+  background: rgba(240,169,64,0.1);
+}
 
 #bottom-content {
   flex: 1;

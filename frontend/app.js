@@ -817,6 +817,7 @@ function stopPolling() {
 let _tabCounter    = 0;
 let _activeTab     = 'log';
 const _cliSessions = {};
+let _broadcastMode = false;
 
 function openCLITab(nodeName, sshPort) {
   const port  = sshPort || 22;
@@ -880,13 +881,20 @@ function openCLITab(nodeName, sshPort) {
   };
 
   term.onData(data => {
-    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+    if (_broadcastMode) {
+      Object.values(_cliSessions).forEach(s => {
+        if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
+      });
+    } else {
+      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+    }
   });
   term.onResize(({ cols, rows }) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
   });
 
   _cliSessions[tabId] = { term, fitAddon, ws, nodeName };
+  _updateBroadcastBtn();
   switchTab(tabId);
   log(`CLI タブ起動: ${nodeName}`, 'ok');
 }
@@ -916,7 +924,31 @@ function closeCLITab(tabId) {
   $(`tab-btn-${tabId}`)?.remove();
   $(`tab-pane-${tabId}`)?.remove();
   if (_activeTab === tabId) switchTab('log');
+  _updateBroadcastBtn();
 }
+
+// ── 全台入力モード ────────────────────────────────────────────────────────
+function _updateBroadcastBtn() {
+  const btn = $('btn-broadcast');
+  const count = Object.keys(_cliSessions).length;
+  if (_broadcastMode && count === 0) {
+    _broadcastMode = false;
+  }
+  btn.classList.toggle('broadcast-active', _broadcastMode);
+  btn.textContent = _broadcastMode ? `全台入力 ON (${count}台)` : '全台入力';
+}
+
+$('btn-broadcast').addEventListener('click', () => {
+  const count = Object.keys(_cliSessions).length;
+  if (count === 0) { log('CLI タブを先に開いてください', 'warn'); return; }
+  _broadcastMode = !_broadcastMode;
+  _updateBroadcastBtn();
+  if (_broadcastMode) {
+    log(`全台入力 ON — ${count} 台のCLIに同時入力されます`, 'warn');
+  } else {
+    log('全台入力 OFF', 'info');
+  }
+});
 
 // ── ボトムパネル リサイズ ──────────────────────────────────────────────────
 (function () {
