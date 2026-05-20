@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContainerLab GUI v1.1</title>
-  <link rel="stylesheet" href="/static/style.css?v=16">
+  <link rel="stylesheet" href="/static/style.css?v=31">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
   <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -78,6 +78,7 @@
   <div id="bottom-tabbar">
     <div class="bottom-tab active" id="tab-btn-log" data-tab="log">ログ</div>
     <div class="tab-spacer"></div>
+    <button class="btn-tab-action" id="btn-broadcast" title="全CLIタブに同時入力">一括入力</button>
     <button class="btn-tab-action" id="btn-clear-log">クリア</button>
   </div>
   <div id="bottom-content">
@@ -230,6 +231,33 @@
   </div>
 </div>
 
+<!-- 一括入力 ノード選択モーダル -->
+<div class="modal-overlay" id="modal-broadcast-select">
+  <div class="modal-box" style="max-width:320px">
+    <h3>一括入力するノードを選択</h3>
+    <div class="form-group">
+      <div id="broadcast-node-list" class="node-check-grid"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost"   id="btn-broadcast-cancel">キャンセル</button>
+      <button class="btn btn-primary" id="btn-broadcast-confirm">開始</button>
+    </div>
+  </div>
+</div>
+
+<!-- 一括入力 ターミナルビュー -->
+<div class="modal-overlay" id="modal-broadcast-view">
+  <div class="modal-box">
+    <div class="broadcast-titlebar">
+      <span class="broadcast-titlebar-label" id="broadcast-modal-title">一括入力</span>
+      <span id="broadcast-sync-badge" class="broadcast-sync-badge sync-on">● 同期中</span>
+      <span class="broadcast-sync-hint">Shift+ESC で切替</span>
+      <button class="btn btn-ghost btn-sm" id="btn-broadcast-close">✕ 閉じる</button>
+    </div>
+    <div id="broadcast-terminals"></div>
+  </div>
+</div>
+
 <!-- テンプレートブラウザモーダル -->
 <div class="modal-overlay" id="modal-templates">
   <div class="modal-box tpl-browser-box">
@@ -265,6 +293,6 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=16"></script>
+<script src="/static/app.js?v=31"></script>
 </body>
 </html>
