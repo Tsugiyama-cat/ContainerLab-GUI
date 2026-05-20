@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>ContainerLab GUI v1.1</title>
-  <link rel="stylesheet" href="/static/style.css?v=32">
+  <link rel="stylesheet" href="/static/style.css?v=33">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
   <script src="https://unpkg.com/vis-network@9.1.9/standalone/umd/vis-network.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
@@ -293,6 +293,14 @@
   </div>
 </div>
 
-<script src="/static/app.js?v=32"></script>
+<!-- app.js を機能別に分割。core.js を必ず最初に、main.js (init() を呼ぶ) を最後に読み込む。 -->
+<script src="/static/js/core.js?v=33"></script>
+<script src="/static/js/topology.js?v=33"></script>
+<script src="/static/js/detail.js?v=33"></script>
+<script src="/static/js/cli.js?v=33"></script>
+<script src="/static/js/actions.js?v=33"></script>
+<script src="/static/js/template.js?v=33"></script>
+<script src="/static/js/deploy.js?v=33"></script>
+<script src="/static/js/main.js?v=33"></script>
 </body>
 </html>
