@@ -819,6 +819,7 @@ let _tabCounter    = 0;
 let _activeTab     = 'log';
 const _cliSessions = {};
 let _broadcastMode         = false;
+let _broadcastSyncOn       = true;  // true=全台同期, false=個別入力
 let _broadcastPopupSessions = []; // { term, fitAddon, ws, nodeName }
 
 function openCLITab(nodeName, sshPort) {
@@ -926,15 +927,22 @@ function closeCLITab(tabId) {
 function _updateBroadcastBtn() {
   const btn        = $('btn-broadcast');
   const readyCount = Object.values(state.deployedNodes || {}).filter(d => d.mgmt_ip).length;
-  btn.disabled     = !_broadcastMode && readyCount < 2;
+  btn.disabled     = readyCount < 2;
   btn.classList.toggle('broadcast-active', _broadcastMode);
-  if (_broadcastMode) {
-    const popupVisible = $('modal-broadcast-view').classList.contains('visible');
-    btn.textContent = popupVisible
-      ? `一括入力 ON (${_broadcastPopupSessions.length}台)`
-      : `一括入力 (一時停止 ${_broadcastPopupSessions.length}台)`;
+  btn.textContent  = _broadcastMode
+    ? `一括入力 ON (${_broadcastPopupSessions.length}台)`
+    : '一括入力';
+}
+
+function _updateBroadcastSyncIndicator() {
+  const badge = $('broadcast-sync-badge');
+  if (!badge) return;
+  if (_broadcastSyncOn) {
+    badge.textContent = '● 同期中';
+    badge.className = 'broadcast-sync-badge sync-on';
   } else {
-    btn.textContent = '一括入力';
+    badge.textContent = '● 個別入力';
+    badge.className = 'broadcast-sync-badge sync-off';
   }
 }
 
@@ -975,6 +983,7 @@ function _makeBroadcastTerm() {
 
 function enterBroadcastMode(nodeNames) {
   _broadcastMode         = true;
+  _broadcastSyncOn       = true;
   _broadcastPopupSessions = [];
 
   const container = $('broadcast-terminals');
@@ -1001,6 +1010,7 @@ function enterBroadcastMode(nodeNames) {
   // モーダルを先に表示（xterm は visible 要素に対して open する必要がある）
   $('broadcast-modal-title').textContent = `一括入力 — ${nodeNames.length} 台: ${nodeNames.join(', ')}`;
   $('modal-broadcast-view').classList.add('visible');
+  _updateBroadcastSyncIndicator();
 
   // レイアウトが確定してからターミナルを全台まとめて初期化
   setTimeout(() => {
@@ -1034,18 +1044,25 @@ function enterBroadcastMode(nodeNames) {
         };
 
         term.onData(data => {
-          for (const s of _broadcastPopupSessions) {
-            if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
+          if (_broadcastSyncOn) {
+            // 全台同期: 全セッションに送信
+            for (const s of _broadcastPopupSessions) {
+              if (s.ws.readyState === WebSocket.OPEN) s.ws.send(JSON.stringify({ type: 'input', data }));
+            }
+          } else {
+            // 個別入力: このターミナルのみ
+            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
           }
         });
         term.onResize(({ cols, rows }) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         });
-        // Shift+ESC をターミナルより先に横取りしてポップアップをトグル
+        // Shift+ESC で同期 ON/OFF をトグル
         term.attachCustomKeyEventHandler(e => {
           if (e.key === 'Escape' && e.shiftKey && e.type === 'keydown') {
-            _toggleBroadcastPopup();
-            return false;
+            _broadcastSyncOn = !_broadcastSyncOn;
+            _updateBroadcastSyncIndicator();
+            return false; // SSH には送らない
           }
           return true;
         });
@@ -1075,20 +1092,6 @@ function enterBroadcastMode(nodeNames) {
   log(`一括入力 ON — ${nodeNames.length} 台: ${nodeNames.join(', ')}`, 'warn');
 }
 
-function _toggleBroadcastPopup() {
-  const modal = $('modal-broadcast-view');
-  if (modal.classList.contains('visible')) {
-    modal.classList.remove('visible');
-  } else {
-    modal.classList.add('visible');
-    requestAnimationFrame(() => {
-      for (const s of _broadcastPopupSessions) s.fitAddon.fit();
-      if (_broadcastPopupSessions.length > 0) _broadcastPopupSessions[0].term.focus();
-    });
-  }
-  _updateBroadcastBtn();
-}
-
 function exitBroadcastMode() {
   if (!_broadcastMode) return;
   _broadcastMode = false;
@@ -1103,11 +1106,7 @@ function exitBroadcastMode() {
 }
 
 $('btn-broadcast').addEventListener('click', () => {
-  if (_broadcastMode) {
-    // 一時停止 ↔ 再開トグル
-    _toggleBroadcastPopup();
-    return;
-  }
+  if (_broadcastMode) return; // ポップアップは閉じるボタンでのみ終了
   showBroadcastSelectModal();
 });
 $('btn-broadcast-close').addEventListener('click', exitBroadcastMode);
@@ -1260,7 +1259,8 @@ document.addEventListener('keydown', async e => {
     closeTplModal();
   }
   if (e.key === 'Escape' && e.shiftKey && _broadcastMode) {
-    _toggleBroadcastPopup();
+    _broadcastSyncOn = !_broadcastSyncOn;
+    _updateBroadcastSyncIndicator();
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && !isInputFocused()) {
     await deleteSelected();

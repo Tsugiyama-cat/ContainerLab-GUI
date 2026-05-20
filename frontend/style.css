@@ -366,6 +366,29 @@ html, body {
   color: #f0a940;
   font-family: Consolas, monospace;
   letter-spacing: 0.04em;
+  margin-right: 8px;
+}
+.broadcast-sync-badge {
+  font-size: 11px;
+  font-family: Consolas, monospace;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  transition: color .2s, background .2s;
+}
+.broadcast-sync-badge.sync-on {
+  color: #4caf7d;
+  background: rgba(76,175,125,0.12);
+}
+.broadcast-sync-badge.sync-off {
+  color: #f0a940;
+  background: rgba(240,169,64,0.12);
+}
+.broadcast-sync-hint {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: 8px;
+  flex: 1;
 }
 #broadcast-terminals {
   display: flex;
