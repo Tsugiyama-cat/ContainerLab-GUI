@@ -1041,6 +1041,14 @@ function enterBroadcastMode(nodeNames) {
         term.onResize(({ cols, rows }) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         });
+        // ESC キーをターミナルより先に横取りしてポップアップをトグル
+        term.attachCustomKeyEventHandler(e => {
+          if (e.key === 'Escape' && e.type === 'keydown') {
+            _toggleBroadcastPopup();
+            return false; // xterm (SSH) には送らない
+          }
+          return true;
+        });
         // term.onFocus は xterm v5.3.0 に存在しないため click イベントで代替
         inner.addEventListener('click', () => {
           container.querySelectorAll('.broadcast-term-col').forEach(c => c.classList.remove('focused'));
