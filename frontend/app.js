@@ -1041,11 +1041,11 @@ function enterBroadcastMode(nodeNames) {
         term.onResize(({ cols, rows }) => {
           if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'resize', cols, rows }));
         });
-        // ESC キーをターミナルより先に横取りしてポップアップをトグル
+        // Shift+ESC をターミナルより先に横取りしてポップアップをトグル
         term.attachCustomKeyEventHandler(e => {
-          if (e.key === 'Escape' && e.type === 'keydown') {
+          if (e.key === 'Escape' && e.shiftKey && e.type === 'keydown') {
             _toggleBroadcastPopup();
-            return false; // xterm (SSH) には送らない
+            return false;
           }
           return true;
         });
@@ -1257,8 +1257,10 @@ document.addEventListener('keydown', async e => {
     $('modal-bulk-cmd').classList.remove('visible');
     $('modal-ping').classList.remove('visible');
     $('modal-broadcast-select').classList.remove('visible');
-    if (_broadcastMode) _toggleBroadcastPopup();
     closeTplModal();
+  }
+  if (e.key === 'Escape' && e.shiftKey && _broadcastMode) {
+    _toggleBroadcastPopup();
   }
   if ((e.key === 'Delete' || e.key === 'Backspace') && !isInputFocused()) {
     await deleteSelected();
