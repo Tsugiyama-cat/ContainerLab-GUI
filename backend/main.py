@@ -24,26 +24,73 @@ _deploy_lock = asyncio.Lock()
 _mclag_task: Optional[asyncio.Task] = None
 
 
-# ── MCLAG バックグラウンドタスク ──────────────────────────────
+# ── SSH ヘルパー ──────────────────────────────────────────────
+# 共通設定 (known_hosts=None, パスワード認証) を1箇所に集約し、
+# 各エンドポイントは run/push のいずれかのヘルパーだけを使えば良い形に揃える。
 
-async def _ssh_push_config(info: dict, config: str, retries: int = 3) -> bool:
-    """SSH で configure terminal → コンフィグ投入 → write memory (最大 retries 回リトライ)"""
-    lines = [l.rstrip() for l in config.splitlines()
-             if l.strip() and not l.strip().startswith('#')]
-    for attempt in range(retries):
-        if attempt > 0:
-            await asyncio.sleep(10)
-        try:
-            async with asyncssh.connect(
-                info["mgmt_ip"],
-                port=info.get("ssh_port", 22),
-                username=info["ssh_user"],
-                password=info["ssh_pass"],
-                known_hosts=None,
-                connect_timeout=30,
-            ) as conn:
-                async with conn.create_process(term_type="vt100", term_size=(220, 50)) as proc:
-                    await asyncio.sleep(3.0)
+def _ssh_open(info: dict, *, timeout: int = 15):
+    """asyncssh.connect() を共通パラメータでラップした context manager を返す。
+    呼び出し側は `async with _ssh_open(info) as conn:` の形で使う。"""
+    return asyncssh.connect(
+        info["mgmt_ip"],
+        port=info.get("ssh_port", 22),
+        username=info["ssh_user"],
+        password=info["ssh_pass"],
+        known_hosts=None,
+        connect_timeout=timeout,
+    )
+
+
+async def _ssh_run_on_node(
+    node_name: str,
+    cmd: str,
+    *,
+    run_timeout: int = 30,
+    connect_timeout: int = 15,
+) -> dict:
+    """ノード名から SSH 情報を解決し、1コマンドを `conn.run()` で実行する。
+    返却: {"output": stdout+stderr} or {"error": message}
+    """
+    info = lab.get_ssh_info(node_name)
+    if not info or not info.get("mgmt_ip"):
+        return {"error": "未デプロイ"}
+    try:
+        async with _ssh_open(info, timeout=connect_timeout) as conn:
+            r = await conn.run(cmd, timeout=run_timeout)
+            return {"output": (r.stdout or "") + (r.stderr or "")}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+async def _ssh_push_lines(
+    info: dict,
+    lines: list[str],
+    *,
+    junos: bool = False,
+    connect_timeout: int = 30,
+) -> dict:
+    """対話 shell を起動し configure mode で `lines` を順次投入する。
+    junos=True なら `configure / load set terminal / commit`、
+    False (AOS-CX) なら `configure terminal / end / write memory`。
+    返却: {"output": str} or {"error": str}
+    """
+    try:
+        async with _ssh_open(info, timeout=connect_timeout) as conn:
+            async with conn.create_process(term_type="vt100", term_size=(220, 50)) as proc:
+                await asyncio.sleep(3.0)  # ログインバナー・CLI 起動待機
+                if junos:
+                    proc.stdin.write("configure\n")
+                    await asyncio.sleep(1.0)
+                    proc.stdin.write("load set terminal\n")
+                    await asyncio.sleep(0.5)
+                    for line in lines:
+                        proc.stdin.write(line + "\n")
+                        await asyncio.sleep(0.05)
+                    proc.stdin.write("\x04")  # Ctrl+D で load 終了
+                    await asyncio.sleep(2.0)
+                    proc.stdin.write("commit\n")
+                    await asyncio.sleep(5.0)
+                else:
                     proc.stdin.write("configure terminal\n")
                     await asyncio.sleep(1.0)
                     for line in lines:
@@ -53,11 +100,47 @@ async def _ssh_push_config(info: dict, config: str, retries: int = 3) -> bool:
                     await asyncio.sleep(1.0)
                     proc.stdin.write("write memory\n")
                     await asyncio.sleep(5.0)
-                    proc.stdin.write("exit\n")
-                    await asyncio.sleep(0.5)
+                proc.stdin.write("exit\n")
+                await asyncio.sleep(0.5)
+
+                output_chunks: list[str] = []
+                try:
+                    async with asyncio.timeout(5):
+                        while True:
+                            chunk = await proc.stdout.read(4096)
+                            if not chunk:
+                                break
+                            output_chunks.append(chunk)
+                except (asyncio.TimeoutError, Exception):
+                    pass
+                return {"output": "".join(output_chunks)}
+    except (asyncssh.Error, OSError) as e:
+        return {"error": f"SSHエラー: {e}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+def _strip_config_lines(config: str) -> list[str]:
+    """コメント行・空行を除いた設定行のリストを返す"""
+    return [
+        l.rstrip()
+        for l in config.splitlines()
+        if l.strip() and not l.strip().startswith('#')
+    ]
+
+
+# ── MCLAG バックグラウンドタスク ──────────────────────────────
+
+async def _ssh_push_config(info: dict, config: str, retries: int = 3) -> bool:
+    """AOS-CX に設定を投入し write memory するリトライラッパー。
+    MCLAG バックグラウンドタスクから使用 — bool だけを返すシンプルな I/F を維持。"""
+    lines = _strip_config_lines(config)
+    for attempt in range(retries):
+        if attempt > 0:
+            await asyncio.sleep(10)
+        result = await _ssh_push_lines(info, lines, junos=False)
+        if "error" not in result:
             return True
-        except Exception:
-            continue
     return False
 
 
@@ -78,14 +161,7 @@ async def _vsx_mclag_background():
         if not info or not info.get("mgmt_ip"):
             continue
         try:
-            async with asyncssh.connect(
-                info["mgmt_ip"],
-                port=info.get("ssh_port", 22),
-                username=info["ssh_user"],
-                password=info["ssh_pass"],
-                known_hosts=None,
-                connect_timeout=10,
-            ) as conn:
+            async with _ssh_open(info, timeout=10) as conn:
                 async with conn.create_process(
                     term_type="vt100", term_size=(220, 50)
                 ) as proc:
@@ -329,70 +405,10 @@ async def apply_configs():
         if not info or not info.get("mgmt_ip"):
             return {"error": "IPアドレス未取得"}
         node = next((n for n in lab.nodes.values() if n["name"] == node_name), None)
-        kind = node["kind"] if node else ""
-        junos = _is_junos(kind)
-        try:
-            async with asyncssh.connect(
-                info["mgmt_ip"],
-                port=info.get("ssh_port", 22),
-                username=info["ssh_user"],
-                password=info["ssh_pass"],
-                known_hosts=None,
-                connect_timeout=30,
-            ) as conn:
-                lines = [l.rstrip() for l in config.splitlines()
-                         if l.strip() and not l.strip().startswith('#')]
-                async with conn.create_process(
-                    term_type="vt100",
-                    term_size=(220, 50),
-                ) as proc:
-                    await asyncio.sleep(3.0)          # ログインバナー・CLI 起動待機
-                    if junos:
-                        proc.stdin.write("configure\n")
-                        await asyncio.sleep(1.0)
-                        proc.stdin.write("load set terminal\n")
-                        await asyncio.sleep(0.5)
-                        for line in lines:
-                            proc.stdin.write(line + "\n")
-                            await asyncio.sleep(0.05)
-                        proc.stdin.write("\x04")      # Ctrl+D で load 終了
-                        await asyncio.sleep(2.0)
-                        proc.stdin.write("commit\n")
-                        await asyncio.sleep(5.0)      # commit 待機
-                        proc.stdin.write("exit\n")
-                        await asyncio.sleep(0.5)
-                    else:
-                        proc.stdin.write("configure terminal\n")
-                        await asyncio.sleep(1.0)
-                        for line in lines:
-                            proc.stdin.write(line + "\n")
-                            await asyncio.sleep(0.1)
-                        proc.stdin.write("end\n")
-                        await asyncio.sleep(1.0)
-                        proc.stdin.write("write memory\n")
-                        await asyncio.sleep(5.0)      # 設定保存待機
-                        proc.stdin.write("exit\n")
-                        await asyncio.sleep(0.5)
-
-                    output_chunks = []
-                    try:
-                        async with asyncio.timeout(5):
-                            while True:
-                                chunk = await proc.stdout.read(4096)
-                                if not chunk:
-                                    break
-                                output_chunks.append(chunk)
-                    except (asyncio.TimeoutError, Exception):
-                        pass
-
-                return {"output": "".join(output_chunks)}
-        except (asyncssh.Error, OSError) as e:
-            return {"error": f"SSHエラー: {e}"}
-        except Exception as e:
-            return {"error": str(e)}
+        junos = _is_junos(node["kind"] if node else "")
+        return await _ssh_push_lines(info, _strip_config_lines(config), junos=junos, connect_timeout=30)
 
     configs = dict(lab.startup_configs)
-
     results_list = await asyncio.gather(*[push_to(n, c) for n, c in configs.items()])
     results = dict(zip(configs.keys(), results_list))
     # 全ノード成功時のみ startup_configs をクリア
@@ -533,14 +549,7 @@ async def get_node_config(node_name: str):
 
     result: dict = {"vlans": [], "ip_interfaces": [], "interfaces": []}
     try:
-        async with asyncssh.connect(
-            info["mgmt_ip"],
-            port=info.get("ssh_port", 22),
-            username=info["ssh_user"],
-            password=info["ssh_pass"],
-            known_hosts=None,
-            connect_timeout=15,
-        ) as conn:
+        async with _ssh_open(info) as conn:
             async def run(cmd: str) -> str:
                 try:
                     r = await conn.run(cmd, timeout=15)
@@ -664,23 +673,9 @@ async def export_topology():
         return data
 
     async def fetch_config(node: dict) -> tuple[str, str]:
-        info = lab.get_ssh_info(node["name"])
-        if not info or not info.get("mgmt_ip"):
-            return node["name"], ""
         cmd = "show running-config" if "aoscx" in node["kind"] else "show configuration"
-        try:
-            async with asyncssh.connect(
-                info["mgmt_ip"],
-                port=info.get("ssh_port", 22),
-                username=info["ssh_user"],
-                password=info["ssh_pass"],
-                known_hosts=None,
-                connect_timeout=15,
-            ) as conn:
-                r = await conn.run(cmd, timeout=30)
-                return node["name"], r.stdout or ""
-        except Exception:
-            return node["name"], ""
+        r = await _ssh_run_on_node(node["name"], cmd)
+        return node["name"], r.get("output", "")
 
     results = await asyncio.gather(*[fetch_config(n) for n in lab.nodes.values()])
     data["configs"] = {name: cfg for name, cfg in results if cfg}
@@ -709,26 +704,8 @@ class BulkCmdReq(BaseModel):
 
 @app.post("/api/nodes/command")
 async def bulk_command(req: BulkCmdReq):
-    async def run_on(name: str) -> dict:
-        info = lab.get_ssh_info(name)
-        if not info or not info.get("mgmt_ip"):
-            return {"error": "未デプロイ"}
-        try:
-            async with asyncssh.connect(
-                info["mgmt_ip"],
-                port=info.get("ssh_port", 22),
-                username=info["ssh_user"],
-                password=info["ssh_pass"],
-                known_hosts=None,
-                connect_timeout=15,
-            ) as conn:
-                r = await conn.run(req.command, timeout=30)
-                return {"output": (r.stdout or "") + (r.stderr or "")}
-        except Exception as e:
-            return {"error": str(e)}
-
     names = req.node_names
-    outputs = await asyncio.gather(*[run_on(n) for n in names])
+    outputs = await asyncio.gather(*[_ssh_run_on_node(n, req.command) for n in names])
     return {"results": dict(zip(names, outputs))}
 
 
@@ -756,21 +733,10 @@ async def ping_check(req: PingReq):
         else f"ping {req.target_ip} count {req.count}"
     )
 
-    try:
-        async with asyncssh.connect(
-            info["mgmt_ip"],
-            port=info.get("ssh_port", 22),
-            username=info["ssh_user"],
-            password=info["ssh_pass"],
-            known_hosts=None,
-            connect_timeout=15,
-        ) as conn:
-            r = await conn.run(cmd, timeout=30)
-            return {"output": (r.stdout or "") + (r.stderr or ""), "command": cmd}
-    except asyncssh.Error as e:
-        raise HTTPException(500, f"SSHエラー: {e}")
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    r = await _ssh_run_on_node(req.source_node, cmd)
+    if "error" in r:
+        raise HTTPException(500, r["error"])
+    return {"output": r["output"], "command": cmd}
 
 
 # ── 設定バックアップ ──────────────────────────────────────────
@@ -787,26 +753,14 @@ async def get_config_backup(node_name: str):
     kind = node["kind"] if node else ""
     cmd = "show running-config" if "aoscx" in kind else "show configuration"
 
-    try:
-        async with asyncssh.connect(
-            info["mgmt_ip"],
-            port=info.get("ssh_port", 22),
-            username=info["ssh_user"],
-            password=info["ssh_pass"],
-            known_hosts=None,
-            connect_timeout=15,
-        ) as conn:
-            r = await conn.run(cmd, timeout=30)
-            content = r.stdout or ""
-        return Response(
-            content=content,
-            media_type="text/plain; charset=utf-8",
-            headers={"Content-Disposition": f'attachment; filename="{node_name}-running-config.txt"'},
-        )
-    except asyncssh.Error as e:
-        raise HTTPException(500, f"SSHエラー: {e}")
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    r = await _ssh_run_on_node(node_name, cmd)
+    if "error" in r:
+        raise HTTPException(500, r["error"])
+    return Response(
+        content=r["output"],
+        media_type="text/plain; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{node_name}-running-config.txt"'},
+    )
 
 
 # ── WebSocket ターミナル ───────────────────────────────────────
@@ -832,15 +786,12 @@ async def terminal_ws(websocket: WebSocket, node_name: str, port: int = Query(de
     mgmt_ip = info["mgmt_ip"]
     await send(f"\r\n{node_name} ({mgmt_ip}) に接続中...\r\n")
 
+    # WebSocket は query で port を上書きできるので info の値を差し替えてから _ssh_open に渡す。
+    ws_info = dict(info)
+    ws_info["ssh_port"] = port
+
     try:
-        async with asyncssh.connect(
-            mgmt_ip,
-            port=port,
-            username=info["ssh_user"],
-            password=info["ssh_pass"],
-            known_hosts=None,
-            connect_timeout=30,
-        ) as conn:
+        async with _ssh_open(ws_info, timeout=30) as conn:
             await send("\r\n接続しました。\r\n\r\n")
 
             async with conn.create_process(
