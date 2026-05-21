@@ -3,7 +3,6 @@ import json
 import re
 import uuid
 from pathlib import Path
-from typing import Optional
 
 import asyncssh
 from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
@@ -21,7 +20,7 @@ app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")
 
 lab = LabManager()
 _deploy_lock = asyncio.Lock()
-_mclag_task: Optional[asyncio.Task] = None
+_mclag_task: asyncio.Task | None = None
 
 
 # ── SSH ヘルパー ──────────────────────────────────────────────
@@ -289,13 +288,13 @@ async def get_yaml():
 
 class AddNodeReq(BaseModel):
     node_type: str
-    label: Optional[str] = None
-    image: Optional[str] = None
+    label: str | None = None
+    image: str | None = None
 
 
 class UpdateNodeReq(BaseModel):
-    name: Optional[str] = None
-    image: Optional[str] = None
+    name: str | None = None
+    image: str | None = None
 
 
 @app.post("/api/topology/node", status_code=201)
@@ -328,8 +327,8 @@ async def remove_node(node_id: str):
 class AddLinkReq(BaseModel):
     source_id: str
     target_id: str
-    source_port: Optional[int] = None
-    target_port: Optional[int] = None
+    source_port: int | None = None
+    target_port: int | None = None
 
 
 @app.post("/api/topology/link", status_code=201)
