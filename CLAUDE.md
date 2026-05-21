@@ -4,7 +4,7 @@
 > 解決済みの問題・古くなった注意事項は**その場で削除**し、新たに判明した重要事項は追記すること。
 > ファイルは常に「今まさに役立つ情報だけ」に保つ。最終確認日を更新すること。
 >
-> **最終確認日: 2026-05-19（テンプレート検証完了: BGP L3 / EVPN-VXLAN / VSX ペア / VSX Spine-Leaf + MCLAG 動作確認済み）**
+> **最終確認日: 2026-05-21（PR#6-9 マージ: XSS対策 / SSH ヘルパー集約 / app.js を 8ファイル分割 / Optional→PEP604）**
 
 ---
 
@@ -12,13 +12,22 @@
 
 ```
 backend/
-  main.py          # FastAPI。エンドポイント・SSH設定取得・パース関数
+  main.py          # FastAPI エンドポイント + SSH ヘルパー (_ssh_open/_ssh_run_on_node/_ssh_push_lines) + パーサー
   lab_manager.py   # LabManager。ノード/リンク管理・デプロイ・Docker API
+  templates.py     # テンプレートトポロジー定義
 frontend/
-  index.html       # メイン画面（キャッシュバスト: ?v=5）
-  app.js           # 全フロントエンドロジック
+  index.html       # メイン画面（キャッシュバスト: ?v=33）
+  js/              # app.js を機能別 8 ファイルに分割
+    core.js        # state / DOM 参照 / vis.js init / api / log / escapeHtml
+    topology.js    # パレット / モード / リンク / 削除・編集 / YAML / vis events
+    detail.js      # 右詳細パネル / 設定情報 / デプロイ済み一覧
+    cli.js         # CLI タブ (xterm + WebSocket) / 一括入力 (broadcast)
+    actions.js     # 一括コマンド (diff) / ping / 設定バックアップ
+    template.js    # テンプレートブラウザ / ミニトポロジー描画
+    deploy.js      # deploy/destroy / ポーリング / 自動コンフィグ投入 / 保存読込
+    main.js        # コンテキストメニュー / キーボード / ボトムリサイズ / init()
   style.css        # スタイル
-docker-compose.yml / Dockerfile
+compose.yml / Dockerfile
 ```
 
 起動ポート: **8888**
@@ -43,7 +52,11 @@ docker-compose.yml / Dockerfile
 - **`clab destroy` はコンテナ内から動作しない**（`clab inspect` は動く）
   → `lab_manager.py` の `_force_cleanup_lab()` で Docker Unix socket API を直叩きして削除
 - **ブラウザキャッシュ対策**: `index.html` の `<script>` / `<link>` タグに `?v=N` を付与
-  → JS/CSS 変更時は N をインクリメントすること（現在 v=10）
+  → JS/CSS 変更時は N をインクリメントすること（現在 v=33）
+- **フロントの XSS 対策**: `core.js` の `escapeHtml()` を innerHTML 展開時に必ず通す。
+  インライン `onclick="..."` 属性は使わず、`data-action` + `addEventListener` で安全に紐付ける（クロージャで id を保持する形）。
+- **バックエンドの SSH 呼び出し**: 必ず `_ssh_open` / `_ssh_run_on_node` / `_ssh_push_lines` ヘルパー経由で書くこと。
+  `asyncssh.connect()` を直書きしない (`_ssh_open` 内 1 箇所のみが許容)。
 - **デプロイ後にリンク追加した場合は再デプロイが必要**（警告ログ表示済み）
 - **aruba_aoscx の 1/1/1 は vrnetlab 管理ポート**: データリンクは 1/1/2 以降を使用（iface_start=2）
   → startup-config に VLAN・interface 設定を書けば 1/1/2 以降は正常に適用される
