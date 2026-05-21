@@ -5,7 +5,6 @@ import os
 import socket
 import uuid
 from pathlib import Path
-from typing import Optional
 
 import yaml
 
@@ -50,8 +49,8 @@ class LabManager:
     def add_node(
         self,
         node_type: str,
-        label: Optional[str] = None,
-        image: Optional[str] = None,
+        label: str | None = None,
+        image: str | None = None,
     ) -> dict:
         if node_type not in NODE_TYPES:
             raise ValueError(f"不明なノードタイプ: {node_type}")
@@ -94,7 +93,7 @@ class LabManager:
         self._node_port[nid] = t["iface_start"]
         return self.nodes[nid]
 
-    def update_node(self, node_id: str, name: Optional[str] = None, image: Optional[str] = None) -> dict:
+    def update_node(self, node_id: str, name: str | None = None, image: str | None = None) -> dict:
         if node_id not in self.nodes:
             raise ValueError(f"ノードが見つかりません: {node_id}")
         if name:
@@ -118,8 +117,8 @@ class LabManager:
         self,
         source_id: str,
         target_id: str,
-        source_port: Optional[int] = None,
-        target_port: Optional[int] = None,
+        source_port: int | None = None,
+        target_port: int | None = None,
     ) -> dict:
         if source_id not in self.nodes or target_id not in self.nodes:
             raise ValueError("ノードが見つかりません")
@@ -246,7 +245,7 @@ class LabManager:
         self._topo_path().write_text(self.generate_yaml())
 
         # 残骸コンテナを Docker API で直接強制削除
-        await asyncio.get_event_loop().run_in_executor(None, self._force_cleanup_lab)
+        await asyncio.to_thread(self._force_cleanup_lab)
 
         # clab が管理するノード設定ディレクトリを削除して startup-config を確実に上書きさせる
         import shutil as _shutil
@@ -267,7 +266,7 @@ class LabManager:
         return proc.returncode == 0, output
 
     async def destroy(self) -> tuple[bool, str]:
-        await asyncio.get_event_loop().run_in_executor(None, self._force_cleanup_lab)
+        await asyncio.to_thread(self._force_cleanup_lab)
         self.deployed = False
         self.deployed_nodes = {}
         self.mclag_status = ""
@@ -306,7 +305,7 @@ class LabManager:
 
     # ── SSH 情報取得 ──────────────────────────────────────────
 
-    def get_ssh_info(self, node_name: str) -> Optional[dict]:
+    def get_ssh_info(self, node_name: str) -> dict | None:
         node = next((n for n in self.nodes.values() if n["name"] == node_name), None)
         if not node:
             return None
