@@ -64,16 +64,24 @@ ContainerLab-GUI/
 ├── .gitignore
 │
 ├── backend/                 # FastAPI バックエンド
-│   ├── main.py              # API エンドポイント / SSH 設定取得
+│   ├── main.py              # API エンドポイント + SSH ヘルパー集約
 │   ├── lab_manager.py       # ノード・リンク管理 / デプロイ / Docker API
 │   ├── templates.py         # テンプレートトポロジー定義
 │   └── requirements.txt
 │
 ├── frontend/                # Web フロントエンド（バニラ JS）
 │   ├── index.html           # メイン画面
-│   ├── app.js               # フロントエンドロジック全般
 │   ├── style.css
-│   └── terminal.html        # インライン SSH ターミナル（xterm.js）
+│   ├── terminal.html        # 単体ターミナルページ
+│   └── js/                  # 機能別に分割した JS（順序を index.html で明示）
+│       ├── core.js          # state / vis.js init / api / log / escapeHtml
+│       ├── topology.js      # パレット / モード / リンク / 削除・編集 / YAML
+│       ├── detail.js        # 右詳細パネル / 設定情報 / デプロイ済み一覧
+│       ├── cli.js           # CLI タブ (xterm + WebSocket) / 一括入力
+│       ├── actions.js       # 一括コマンド (Diff) / ping / 設定バックアップ
+│       ├── template.js      # テンプレートブラウザ
+│       ├── deploy.js        # デプロイ・破棄 / ポーリング / 保存・読込
+│       └── main.js          # コンテキストメニュー / キーボード / init()
 │
 └── SWOS/                    # Switch OS ビルド環境
     ├── aoscx/               # Aruba AOS-CX（main ブランチ）
