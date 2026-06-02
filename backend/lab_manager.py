@@ -1,5 +1,6 @@
 import asyncio
 import http.client
+import ipaddress
 import json
 import logging
 import os
@@ -15,6 +16,28 @@ logger = logging.getLogger(__name__)
 
 _DOCKER_SOCK = "/var/run/docker.sock"
 _DOCKER_SOCK_TIMEOUT = 2.0   # AI3-S3: socket がハングしてもモジュール import を 2 秒で諦める
+
+
+def _validate_cidr(env_name: str, raw: str, *, version: int) -> str:
+    """空白を除いた CIDR を返す。空文字なら "" を返す。不正値は警告を出して "" を返す。
+    AI3-F1: garbage を clab に渡してから死ぬのを防ぐ。
+    プレフィクス長必須 (`/` が無いと /32 や /128 に解釈されてしまうため拒否)。
+    """
+    s = (raw or "").strip()
+    if not s:
+        return ""
+    if "/" not in s:
+        logger.warning("%s=%r missing CIDR prefix (e.g. /24); ignoring", env_name, s)
+        return ""
+    try:
+        net = ipaddress.ip_network(s, strict=False)
+    except ValueError as e:
+        logger.warning("%s=%r is not a valid CIDR; ignoring (%s)", env_name, s, e)
+        return ""
+    if net.version != version:
+        logger.warning("%s=%r is not IPv%d; ignoring", env_name, s, version)
+        return ""
+    return s
 
 
 def _resolve_aoscx_image() -> str:
@@ -221,15 +244,29 @@ class LabManager:
         }
         # Mac FB#1: 他の Docker Compose プロジェクト (例: 172.20.0.0/16) と
         # サブネットが衝突する場合に CLAB_MGMT_IPV4_SUBNET=172.30.30.0/24 で逃げられるようにする
-        mgmt_subnet_v4 = os.environ.get("CLAB_MGMT_IPV4_SUBNET", "").strip()
-        mgmt_subnet_v6 = os.environ.get("CLAB_MGMT_IPV6_SUBNET", "").strip()
-        if mgmt_subnet_v4 or mgmt_subnet_v6:
-            mgmt: dict = {"network": os.environ.get("CLAB_MGMT_NETWORK", "clab")}
+        # AI3 final review:
+        #   F1: CIDR を ipaddress で検証し、不正値は警告して破棄
+        #   F2: CLAB_MGMT_NETWORK="" (空文字) も未設定扱いにする
+        #   F3: ユーザーが明示的に CLAB_MGMT_NETWORK を設定した時だけ network を出力
+        #   F4: mgmt ブロックを書き出した時に内容をログ
+        mgmt_subnet_v4 = _validate_cidr("CLAB_MGMT_IPV4_SUBNET", os.environ.get("CLAB_MGMT_IPV4_SUBNET", ""), version=4)
+        mgmt_subnet_v6 = _validate_cidr("CLAB_MGMT_IPV6_SUBNET", os.environ.get("CLAB_MGMT_IPV6_SUBNET", ""), version=6)
+        mgmt_network = os.environ.get("CLAB_MGMT_NETWORK", "").strip()
+        if mgmt_subnet_v4 or mgmt_subnet_v6 or mgmt_network:
+            mgmt: dict = {}
             if mgmt_subnet_v4:
                 mgmt["ipv4-subnet"] = mgmt_subnet_v4
             if mgmt_subnet_v6:
                 mgmt["ipv6-subnet"] = mgmt_subnet_v6
+            if mgmt_network:
+                mgmt["network"] = mgmt_network
             topo["mgmt"] = mgmt
+            logger.info(
+                "clab mgmt block: ipv4-subnet=%s ipv6-subnet=%s network=%s",
+                mgmt_subnet_v4 or "(default)",
+                mgmt_subnet_v6 or "(default)",
+                mgmt_network or "(default: clab)",
+            )
 
         # 各ノードで使用するインターフェース収集
         node_ifaces: dict[str, list[str]] = {}
