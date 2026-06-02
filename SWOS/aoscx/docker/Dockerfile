@@ -3,7 +3,9 @@ MAINTAINER Stefano Sasso <stesasso@gmail.com>
 
 ENV DEBIAN_FRONTEND=noninteractive
 
-RUN apt-get update -qy \
+RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' \
+        > /etc/apt/apt.conf.d/99-retry \
+ && apt-get update -qy \
  && apt-get upgrade -qy \
  && apt-get install -y \
     bridge-utils \
