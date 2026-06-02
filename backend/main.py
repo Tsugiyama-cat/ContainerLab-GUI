@@ -381,7 +381,18 @@ async def deploy():
         _mclag_task.cancel()
     lab.mclag_status = ""
     # AI3-S1: 運用中に新しいイメージを焼いた場合に備えてデプロイ直前に再検出
-    refresh_aoscx_image()
+    # AI3-M1-bis: タグが変わったら、旧 default を持つ既存ノードの image も追従させる
+    #   (ユーザーが明示的に別タグを設定したノードはそのまま温存)
+    old_tag, new_tag = await asyncio.to_thread(refresh_aoscx_image)
+    if old_tag != new_tag:
+        replaced = 0
+        for node in lab.nodes.values():
+            if node.get("kind") == "aruba_aoscx" and node.get("image") == old_tag:
+                node["image"] = new_tag
+                replaced += 1
+        if replaced:
+            logger.info("AOS-CX image refreshed: %d node(s) updated %s -> %s",
+                        replaced, old_tag, new_tag)
     # 状態フラグは _run_deploy() の冒頭で立てる (AI3-M1)
     _deploy_task = asyncio.create_task(_run_deploy())
     return {

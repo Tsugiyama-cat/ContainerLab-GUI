@@ -40,7 +40,8 @@ docker-image: extract-ova
 	@if [ -z "$(TAG_VERSION)" ]; then \
 		echo "エラー: タグバージョンを決定できません。make TAG_VERSION=x.y.z で明示してください"; exit 1; \
 	fi
-	@if [ -z "$(OVA_VERSION)" ] && [ -n "$(VMDK_VERSION)" ]; then \
+	@# AI3-S4-bis: 実効タグが vmdk の日付タグそのものになっている時だけ警告 (TAG_VERSION 上書き時は誤発火させない)
+	@if [ -z "$(OVA_VERSION)" ] && [ -n "$(VMDK_VERSION)" ] && [ "$(TAG_VERSION)" = "$(VMDK_VERSION)" ]; then \
 		echo "⚠️  警告: OVA ファイル名からバージョンを推定できなかったため、vmdk の日付タグ ($(VMDK_VERSION)) を使用します"; \
 		echo "   意味のあるタグを使いたい場合は: make TAG_VERSION=10.16.1006"; \
 	fi

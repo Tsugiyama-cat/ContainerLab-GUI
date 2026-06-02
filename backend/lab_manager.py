@@ -32,7 +32,9 @@ def _resolve_aoscx_image() -> str:
 
     try:
         filters = urllib.parse.quote(json.dumps({"reference": ["clabgui/aruba_arubaos-cx"]}))
-        conn = _UnixConn("localhost", timeout=_DOCKER_SOCK_TIMEOUT)
+        # AI3-N5: 親クラスの timeout= はオーバーライドした connect() では使われないため省略
+        # ソケット側で settimeout(_DOCKER_SOCK_TIMEOUT) しているのでそれが効く
+        conn = _UnixConn("localhost")
         conn.request("GET", f"/images/json?filters={filters}")
         resp = conn.getresponse()
         images = json.loads(resp.read())
@@ -67,19 +69,22 @@ NODE_TYPES = {
 }
 
 
-def refresh_aoscx_image() -> str:
+def refresh_aoscx_image() -> tuple[str, str]:
     """ローカル Docker から AOS-CX イメージを再検出して NODE_TYPES に反映する。
     AI3-S1: 初回検出はモジュール import 時に走るが、運用中にユーザーが make で
     新しいイメージを焼いた場合にデプロイ前に再検出できるようにする。
+    AI3-M1-bis: 旧タグを返すことで呼び出し側が既存ノードのイメージも差し替えられるようにする。
+    返却: (old_tag, new_tag)
     """
     global _AOSCX_IMAGE
+    old_tag = _AOSCX_IMAGE
     new_tag = _resolve_aoscx_image()
-    if new_tag != _AOSCX_IMAGE:
-        logger.info("AOS-CX image changed: %s -> %s", _AOSCX_IMAGE, new_tag)
+    if new_tag != old_tag:
+        logger.info("AOS-CX image changed: %s -> %s", old_tag, new_tag)
         _AOSCX_IMAGE = new_tag
         NODE_TYPES["aruba_aoscx"]["default_image"] = new_tag
         NODE_TYPES["aruba_aoscx"]["image_hint"] = f"例: {new_tag}"
-    return new_tag
+    return old_tag, new_tag
 
 LAB_NAME = "clabgui"
 WORK_DIR = Path("/tmp/clabgui")
