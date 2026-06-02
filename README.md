@@ -7,6 +7,43 @@
 
 ---
 
+## 動作環境（必須要件）
+
+AOS-CX / vJunos などのノードは containerlab コンテナ内で **QEMU 仮想マシン**として起動します。  
+そのため **CPU 仮想化支援（KVM）が使える Linux ホスト**が必須です。
+
+| 項目 | 要件 |
+|---|---|
+| OS | Linux（ベアメタル推奨。例: Ubuntu 22.04 / 24.04） |
+| CPU | x86_64 で Intel VT-x / AMD-V が有効。`/dev/kvm` が存在すること |
+| メモリ | AOS-CX は **1 ノードあたり 8GB / 4 vCPU**。`ノード数 × 8GB` 以上を確保 |
+| Docker | privileged コンテナ実行と `/dev/kvm` へのアクセスが可能なこと |
+
+### ✗ 動作しない環境
+
+- **macOS（Docker Desktop） / Windows（Docker Desktop）**  
+  Docker Desktop は内部の Linux VM 上で動作し、ネスト仮想化（KVM）をコンテナへ渡しません。  
+  → GUI 表示やイメージビルドはできますが、ノード VM の起動時に  
+  `CPU virtualization support is required for node ...` で**必ず失敗します**。  
+  （Colima / Lima / Podman Desktop など他の方式も、Mac では結局 Linux VM 経由となり同じ結果です）
+
+### ○ 動作する環境
+
+| 環境 | 備考 |
+|---|---|
+| ベアメタル Linux（Ubuntu 等） | CPU 仮想化を BIOS/UEFI で有効化していること |
+| ネスト仮想化を有効化した VM 上の Linux | 例: **VMware ESXi**（「ハードウェア アシストによる仮想化をゲスト OS に公開」を有効化）、Proxmox（ゲスト CPU = `host`）、GCP（`--enable-nested-virtualization`） |
+| Windows + WSL2 + docker-ce | Docker Desktop ではなく、WSL2 のディストリ内に Docker Engine を直接導入。対応 CPU でネスト仮想化が有効なこと |
+
+### KVM が使えるか確認
+
+```bash
+ls -l /dev/kvm                      # デバイスが存在すること
+egrep -c '(vmx|svm)' /proc/cpuinfo  # 1 以上であること
+```
+
+---
+
 ## 対応ノードタイプ
 
 | ノード | イメージ |
