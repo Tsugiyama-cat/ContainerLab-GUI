@@ -121,7 +121,7 @@ OVA / VMDK / OVF などのベンダーイメージはライセンスの関係上
 
 ### Aruba AOS-CX
 
-1. [Aruba Support Portal](https://asp.arubanetworks.com/) からOVAをダウンロード
+1. [HPE Networking Support Portal](https://networkingsupport.hpe.com/) からOVAをダウンロード
 2. `SWOS/aoscx/` に配置
 3. Dockerイメージをビルド:
 
