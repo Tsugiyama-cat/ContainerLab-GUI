@@ -219,6 +219,17 @@ class LabManager:
             "name": LAB_NAME,
             "topology": {"nodes": {}, "links": []},
         }
+        # Mac FB#1: 他の Docker Compose プロジェクト (例: 172.20.0.0/16) と
+        # サブネットが衝突する場合に CLAB_MGMT_IPV4_SUBNET=172.30.30.0/24 で逃げられるようにする
+        mgmt_subnet_v4 = os.environ.get("CLAB_MGMT_IPV4_SUBNET", "").strip()
+        mgmt_subnet_v6 = os.environ.get("CLAB_MGMT_IPV6_SUBNET", "").strip()
+        if mgmt_subnet_v4 or mgmt_subnet_v6:
+            mgmt: dict = {"network": os.environ.get("CLAB_MGMT_NETWORK", "clab")}
+            if mgmt_subnet_v4:
+                mgmt["ipv4-subnet"] = mgmt_subnet_v4
+            if mgmt_subnet_v6:
+                mgmt["ipv6-subnet"] = mgmt_subnet_v6
+            topo["mgmt"] = mgmt
 
         # 各ノードで使用するインターフェース収集
         node_ifaces: dict[str, list[str]] = {}

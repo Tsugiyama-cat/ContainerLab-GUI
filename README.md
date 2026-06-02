@@ -258,3 +258,17 @@ cp .env.example .env
 |---|---|---|
 | `AOSCX_SSH_USER` | AOS-CX SSH ユーザー名 | `admin` |
 | `AOSCX_SSH_PASS` | AOS-CX SSH パスワード | `admin` |
+| `CLAB_MGMT_IPV4_SUBNET` | clab 管理ネットワークの IPv4 サブネット。他の Docker プロジェクト (例 `172.20.0.0/16`) と衝突する場合に空きレンジを指定 | 未設定 (clab デフォルト `172.20.20.0/24`) |
+| `CLAB_MGMT_IPV6_SUBNET` | 同上、IPv6 | 未設定 |
+| `CLAB_MGMT_NETWORK` | clab 管理ネットワーク名 | `clab` |
+
+### サブネット衝突への対処
+
+`docker network ls` で既存ネットワークを確認し、空いているレンジを `.env` に設定してください：
+
+```bash
+docker network inspect $(docker network ls -q) | grep -i subnet
+# 例: 172.20.0.0/16 が使用済みなら以下を .env に追記して docker compose restart
+echo 'CLAB_MGMT_IPV4_SUBNET=172.30.30.0/24' >> .env
+docker compose restart clabgui
+```
