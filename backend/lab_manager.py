@@ -57,7 +57,7 @@ class LabManager:
 
         nid = str(uuid.uuid4())[:8]
         t = NODE_TYPES[node_type]
-        short = node_type.split("_")[-1]  # e.g. "aoscx", "vjunosswitch"
+        short = node_type.split("_")[-1]  # e.g. "aoscx"
 
         # ユニークな名前を生成
         existing = {n["name"] for n in self.nodes.values()}

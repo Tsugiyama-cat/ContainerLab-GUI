@@ -65,40 +65,24 @@ async def _ssh_push_lines(
     info: dict,
     lines: list[str],
     *,
-    junos: bool = False,
     connect_timeout: int = 30,
 ) -> dict:
-    """対話 shell を起動し configure mode で `lines` を順次投入する。
-    junos=True なら `configure / load set terminal / commit`、
-    False (AOS-CX) なら `configure terminal / end / write memory`。
+    """AOS-CX の対話 shell で configure terminal → lines 投入 → write memory する。
     返却: {"output": str} or {"error": str}
     """
     try:
         async with _ssh_open(info, timeout=connect_timeout) as conn:
             async with conn.create_process(term_type="vt100", term_size=(220, 50)) as proc:
                 await asyncio.sleep(3.0)  # ログインバナー・CLI 起動待機
-                if junos:
-                    proc.stdin.write("configure\n")
-                    await asyncio.sleep(1.0)
-                    proc.stdin.write("load set terminal\n")
-                    await asyncio.sleep(0.5)
-                    for line in lines:
-                        proc.stdin.write(line + "\n")
-                        await asyncio.sleep(0.05)
-                    proc.stdin.write("\x04")  # Ctrl+D で load 終了
-                    await asyncio.sleep(2.0)
-                    proc.stdin.write("commit\n")
-                    await asyncio.sleep(5.0)
-                else:
-                    proc.stdin.write("configure terminal\n")
-                    await asyncio.sleep(1.0)
-                    for line in lines:
-                        proc.stdin.write(line + "\n")
-                        await asyncio.sleep(0.1)
-                    proc.stdin.write("end\n")
-                    await asyncio.sleep(1.0)
-                    proc.stdin.write("write memory\n")
-                    await asyncio.sleep(5.0)
+                proc.stdin.write("configure terminal\n")
+                await asyncio.sleep(1.0)
+                for line in lines:
+                    proc.stdin.write(line + "\n")
+                    await asyncio.sleep(0.1)
+                proc.stdin.write("end\n")
+                await asyncio.sleep(1.0)
+                proc.stdin.write("write memory\n")
+                await asyncio.sleep(5.0)
                 proc.stdin.write("exit\n")
                 await asyncio.sleep(0.5)
 
@@ -137,7 +121,7 @@ async def _ssh_push_config(info: dict, config: str, retries: int = 3) -> bool:
     for attempt in range(retries):
         if attempt > 0:
             await asyncio.sleep(10)
-        result = await _ssh_push_lines(info, lines, junos=False)
+        result = await _ssh_push_lines(info, lines)
         if "error" not in result:
             return True
     return False
@@ -403,9 +387,7 @@ async def apply_configs():
         info = lab.get_ssh_info(node_name)
         if not info or not info.get("mgmt_ip"):
             return {"error": "IPアドレス未取得"}
-        node = next((n for n in lab.nodes.values() if n["name"] == node_name), None)
-        junos = _is_junos(node["kind"] if node else "")
-        return await _ssh_push_lines(info, _strip_config_lines(config), junos=junos, connect_timeout=30)
+        return await _ssh_push_lines(info, _strip_config_lines(config), connect_timeout=30)
 
     configs = dict(lab.startup_configs)
     results_list = await asyncio.gather(*[push_to(n, c) for n, c in configs.items()])
@@ -414,59 +396,6 @@ async def apply_configs():
     if all(not r.get("error") for r in results.values()):
         lab.startup_configs = {}
     return {"results": results}
-
-
-# ── ノード設定情報取得 ─────────────────────────────────────────────────────
-
-def _is_junos(kind: str) -> bool:
-    return "vjunos" in kind or "juniper" in kind
-
-
-# ── Junos パーサー ─────────────────────────────────────────────
-
-def _parse_junos_vlans(output: str) -> list[dict]:
-    vlans = []
-    for line in output.splitlines():
-        # "vlan100  100  ge-0/0/0.0*" or "default  1"
-        m = re.match(r'^(\S+)\s+(\d+)', line)
-        if m and m.group(1) not in ('Name', 'Routing', 'VLAN', 'default-switch', 'Instance'):
-            try:
-                vlans.append({"id": int(m.group(2)), "name": m.group(1), "status": "up"})
-            except ValueError:
-                pass
-    return vlans
-
-
-def _parse_junos_ip_ifaces(output: str) -> list[dict]:
-    result = []
-    for line in output.splitlines():
-        # ge-0/0/0.0  up  up  inet  10.0.0.1/31
-        m = re.match(r'^(\S+\.\d+)\s+\S+\s+\S+\s+inet\s+([\d.]+/\d+)', line)
-        if m:
-            result.append({
-                "interface": m.group(1),
-                "ip": m.group(2),
-                "type": "inet",
-                "status": "up",
-            })
-    return result
-
-
-def _parse_junos_ifaces(output: str) -> list[dict]:
-    ifaces = []
-    for line in output.splitlines():
-        # ge-0/0/0  up  up
-        m = re.match(r'^(ge-\d+/\d+/\d+)\s+(\S+)\s+(\S+)', line)
-        if m:
-            ifaces.append({
-                "name": m.group(1),
-                "mode": "routed",
-                "vlan": None,
-                "trunk_vlans": None,
-                "ip": None,
-                "shutdown": m.group(2) != "up",
-            })
-    return ifaces
 
 
 # ── AOS-CX パーサー ────────────────────────────────────────────
@@ -542,10 +471,6 @@ async def get_node_config(node_name: str):
     if not info.get("mgmt_ip"):
         raise HTTPException(400, "ノードがデプロイされていません")
 
-    node = next((n for n in lab.nodes.values() if n["name"] == node_name), None)
-    kind = node["kind"] if node else ""
-    junos = _is_junos(kind)
-
     result: dict = {"vlans": [], "ip_interfaces": [], "interfaces": []}
     try:
         async with _ssh_open(info) as conn:
@@ -556,27 +481,18 @@ async def get_node_config(node_name: str):
                 except Exception:
                     return ""
 
-            if junos:
-                vlan_out = await run("show vlans")
-                iface_out = await run("show interfaces terse")
-            else:
-                vlan_out    = await run("show vlan")
-                ip_out      = await run("show ip interface")
-                running_out = await run("show running-config")
+            vlan_out    = await run("show vlan")
+            ip_out      = await run("show ip interface")
+            running_out = await run("show running-config")
 
     except asyncssh.Error as e:
         raise HTTPException(500, f"SSHエラー: {e}")
     except Exception as e:
         raise HTTPException(500, str(e))
 
-    if junos:
-        result["vlans"]         = _parse_junos_vlans(vlan_out)
-        result["ip_interfaces"] = _parse_junos_ip_ifaces(iface_out)
-        result["interfaces"]    = _parse_junos_ifaces(iface_out)
-    else:
-        result["vlans"]         = _parse_vlans(vlan_out)
-        result["ip_interfaces"] = _parse_ip_ifaces(ip_out)
-        result["interfaces"]    = _parse_ifaces_from_running(running_out)
+    result["vlans"]         = _parse_vlans(vlan_out)
+    result["ip_interfaces"] = _parse_ip_ifaces(ip_out)
+    result["interfaces"]    = _parse_ifaces_from_running(running_out)
     return result
 
 
