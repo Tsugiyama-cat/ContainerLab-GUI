@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import re
 import uuid
 from pathlib import Path
@@ -10,8 +11,10 @@ from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from lab_manager import LabManager, NODE_TYPES
+from lab_manager import LabManager, NODE_TYPES, refresh_aoscx_image
 from templates import TEMPLATES
+
+logger = logging.getLogger(__name__)
 
 FRONTEND = Path(__file__).parent.parent / "frontend"
 
@@ -338,19 +341,31 @@ async def remove_link(link_id: str):
 async def _run_deploy():
     """clab deploy をバックグラウンドで実行し、結果を lab の状態に反映する。
     HTTP リクエストをブロックしないため、進捗・成否はフロントエンドが /api/status を
-    ポーリングして取得する。"""
+    ポーリングして取得する。
+    AI3-M1: 状態 (deploying/deploy_error) のライフサイクルをこの関数内に集約し、
+    create_task() 後にタスクが起動する前に例外が出てもフラグが残らないようにする。
+    """
     global _mclag_task
+    lab.deploying = True
+    lab.deploy_error = ""
+    logger.info("Deploy task started: nodes=%d links=%d", len(lab.nodes), len(lab.links))
     try:
         async with _deploy_lock:
             success, output = await lab.deploy()
         if success:
             lab.deploy_error = ""
+            logger.info("Deploy task succeeded")
             if lab.mclag_configs:
                 _mclag_task = asyncio.create_task(_vsx_mclag_background())
         else:
             lab.deploy_error = output
+            logger.warning("Deploy task failed: %s", (output or "")[:200])
+    except asyncio.CancelledError:
+        lab.deploy_error = "デプロイが中断されました"
+        raise
     except Exception as e:
         lab.deploy_error = str(e)
+        logger.exception("Deploy task crashed")
     finally:
         lab.deploying = False
 
@@ -365,9 +380,9 @@ async def deploy():
     if _mclag_task and not _mclag_task.done():
         _mclag_task.cancel()
     lab.mclag_status = ""
-    lab.deploy_error = ""
-    lab.deploying = True
-    # デプロイは数十秒かかるためバックグラウンドで実行し、即座に応答する
+    # AI3-S1: 運用中に新しいイメージを焼いた場合に備えてデプロイ直前に再検出
+    refresh_aoscx_image()
+    # 状態フラグは _run_deploy() の冒頭で立てる (AI3-M1)
     _deploy_task = asyncio.create_task(_run_deploy())
     return {
         "started": True,

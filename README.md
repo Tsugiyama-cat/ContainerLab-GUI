@@ -27,7 +27,7 @@ AOS-CX などのノードは containerlab コンテナ内で **QEMU 仮想マシ
 | AOS-CX | **10.16.1006**（Virtual） |
 | containerlab | **0.74.3** |
 | Docker | 24.x 以降 |
-| Docker Compose | v2.24 以降（`env_file.required` を使用） |
+| Docker Compose | **v2.24 以降必須**（`env_file.required: false` を使用。古いバージョンでは `compose.yml` のスキーマエラーで起動失敗） |
 
 ### ✗ 動作しない環境
 
@@ -188,7 +188,8 @@ make
 # OVA を検出 → tar 自動展開 → vmdk からビルド → clabgui/aruba_arubaos-cx:10.16.1006 タグ付与
 ```
 
-タグ末尾を明示したい場合：
+**OVA ファイル名がバージョン推定できない形式の場合**は `TAG_VERSION=` で明示してください（自動推定は `ArubaOS-CX_X_Y_Z.ova` 形式のみ対応）：
+
 ```bash
 make TAG_VERSION=10.16.1006
 ```

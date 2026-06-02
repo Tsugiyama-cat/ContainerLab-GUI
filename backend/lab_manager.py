@@ -13,6 +13,10 @@ import yaml
 logger = logging.getLogger(__name__)
 
 
+_DOCKER_SOCK = "/var/run/docker.sock"
+_DOCKER_SOCK_TIMEOUT = 2.0   # AI3-S3: socket がハングしてもモジュール import を 2 秒で諦める
+
+
 def _resolve_aoscx_image() -> str:
     """ローカル Docker から clabgui/aruba_arubaos-cx の利用可能なタグを検出して返す。
     Makefile は vmdk のファイル名（日付入りの場合あり）からタグを生成するため、
@@ -23,11 +27,12 @@ def _resolve_aoscx_image() -> str:
     class _UnixConn(http.client.HTTPConnection):
         def connect(self_):
             self_.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-            self_.sock.connect("/var/run/docker.sock")
+            self_.sock.settimeout(_DOCKER_SOCK_TIMEOUT)
+            self_.sock.connect(_DOCKER_SOCK)
 
     try:
         filters = urllib.parse.quote(json.dumps({"reference": ["clabgui/aruba_arubaos-cx"]}))
-        conn = _UnixConn("localhost")
+        conn = _UnixConn("localhost", timeout=_DOCKER_SOCK_TIMEOUT)
         conn.request("GET", f"/images/json?filters={filters}")
         resp = conn.getresponse()
         images = json.loads(resp.read())
@@ -60,6 +65,21 @@ NODE_TYPES = {
     },
 
 }
+
+
+def refresh_aoscx_image() -> str:
+    """ローカル Docker から AOS-CX イメージを再検出して NODE_TYPES に反映する。
+    AI3-S1: 初回検出はモジュール import 時に走るが、運用中にユーザーが make で
+    新しいイメージを焼いた場合にデプロイ前に再検出できるようにする。
+    """
+    global _AOSCX_IMAGE
+    new_tag = _resolve_aoscx_image()
+    if new_tag != _AOSCX_IMAGE:
+        logger.info("AOS-CX image changed: %s -> %s", _AOSCX_IMAGE, new_tag)
+        _AOSCX_IMAGE = new_tag
+        NODE_TYPES["aruba_aoscx"]["default_image"] = new_tag
+        NODE_TYPES["aruba_aoscx"]["image_hint"] = f"例: {new_tag}"
+    return new_tag
 
 LAB_NAME = "clabgui"
 WORK_DIR = Path("/tmp/clabgui")
