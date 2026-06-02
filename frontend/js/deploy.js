@@ -11,25 +11,20 @@ $('btn-deploy').addEventListener('click', async () => {
   updateStatusBadge();
   log('デプロイ開始...', 'info');
   try {
+    // デプロイはバックグラウンドで走るため即座に応答が返る。
+    // 進捗・成否は startPolling() → refreshStatus() が /api/status から拾う。
     const res = await api('POST', '/api/deploy');
-    if (res.success) {
-      log('コンテナ起動完了 — VM 起動待機中... (数分かかります)', 'ok');
+    if (res.started) {
+      log('コンテナ起動中 — VM 起動待機中... (数分かかります)', 'info');
       if (res.node_count !== undefined) log(`ノード数: ${res.node_count}, リンク数: ${res.link_count}`, 'info');
-      state.deployed = true;
-      state.deploying = false;
-      await refreshStatus();
-      startPolling();
-    } else {
-      log('デプロイ失敗:\n' + res.output, 'error');
-      state.deploying = false;
       updateStatusBadge();
+      startPolling();
     }
   } catch (e) {
     log(`デプロイエラー: ${e.message}`, 'error');
     state.deploying = false;
-    updateStatusBadge();
-  } finally {
     $('btn-deploy').disabled = false;
+    updateStatusBadge();
   }
 });
 
@@ -55,11 +50,21 @@ $('btn-destroy').addEventListener('click', async () => {
 
 // ── ステータス更新 ─────────────────────────────────────────────────────────
 let _lastMclagStatus = '';
+let _lastDeployError = '';
 async function refreshStatus() {
   try {
     const s = await api('GET', '/api/status');
     state.deployed = s.deployed;
+    state.deploying = !!s.deploying;
     state.deployedNodes = s.deployed_nodes;
+    // バックグラウンドデプロイが失敗した場合は一度だけログ出力してポーリングを止める
+    if (s.deploy_error && s.deploy_error !== _lastDeployError) {
+      _lastDeployError = s.deploy_error;
+      log('デプロイ失敗:\n' + s.deploy_error, 'error');
+      stopPolling();
+    } else if (!s.deploy_error) {
+      _lastDeployError = '';
+    }
     if (s.mclag_status && s.mclag_status !== _lastMclagStatus) {
       const lvl = s.mclag_status.includes('完了') ? 'ok'
                 : s.mclag_status.includes('タイムアウト') ? 'error' : 'info';
@@ -88,6 +93,8 @@ function allNodesReady() {
 
 function updateStatusBadge() {
   elStatus.className = '';
+  // デプロイ進行中は二重デプロイを防ぐためボタンを無効化する
+  $('btn-deploy').disabled = !!state.deploying;
   if (state.deploying) {
     elStatus.textContent = 'デプロイ中...';
     elStatus.classList.add('deploying');

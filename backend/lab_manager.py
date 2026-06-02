@@ -1,19 +1,54 @@
 import asyncio
 import http.client
 import json
+import logging
 import os
 import socket
+import urllib.parse
 import uuid
 from pathlib import Path
 
 import yaml
 
+logger = logging.getLogger(__name__)
+
+
+def _resolve_aoscx_image() -> str:
+    """ローカル Docker から clabgui/aruba_arubaos-cx の利用可能なタグを検出して返す。
+    Makefile は vmdk のファイル名（日付入りの場合あり）からタグを生成するため、
+    ハードコードしたタグでは pull access denied になるケースを避ける。
+    """
+    fallback = "clabgui/aruba_arubaos-cx:10.16.1006"
+
+    class _UnixConn(http.client.HTTPConnection):
+        def connect(self_):
+            self_.sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            self_.sock.connect("/var/run/docker.sock")
+
+    try:
+        filters = urllib.parse.quote(json.dumps({"reference": ["clabgui/aruba_arubaos-cx"]}))
+        conn = _UnixConn("localhost")
+        conn.request("GET", f"/images/json?filters={filters}")
+        resp = conn.getresponse()
+        images = json.loads(resp.read())
+        for img in sorted(images, key=lambda x: x.get("Created", 0), reverse=True):
+            for tag in (img.get("RepoTags") or []):
+                if tag and ":" in tag and not tag.endswith(":<none>"):
+                    logger.info("Auto-detected AOS-CX image: %s", tag)
+                    return tag
+    except Exception as e:
+        logger.warning("AOS-CX image auto-detect failed (%s); falling back to %s", e, fallback)
+    return fallback
+
+
+_AOSCX_IMAGE = _resolve_aoscx_image()
+
 NODE_TYPES = {
     "aruba_aoscx": {
         "name": "Aruba AOSCX",
         "kind": "aruba_aoscx",
-        "default_image": "clabgui/aruba_arubaos-cx:10.16.1006",
-        "image_hint": "例: clabgui/aruba_arubaos-cx:10.16.1006",
+        "default_image": _AOSCX_IMAGE,
+        "image_hint": f"例: {_AOSCX_IMAGE}",
         "ssh_user": os.environ.get("AOSCX_SSH_USER", "admin"),
         "ssh_pass": os.environ.get("AOSCX_SSH_PASS", "admin"),
         "ssh_port": 22,
@@ -37,6 +72,8 @@ class LabManager:
         self.links: dict[str, dict] = {}
         self._node_port: dict[str, int] = {}
         self.deployed = False
+        self.deploying = False                      # バックグラウンドデプロイ進行中フラグ
+        self.deploy_error = ""                      # 直近デプロイの失敗出力 (成功時は空)
         self.deployed_nodes: dict[str, dict] = {}
         self.startup_configs: dict[str, str] = {}  # node_name -> running-config text
         self.mclag_configs: dict[str, str] = {}    # Phase1: spine ポート再割り当て
@@ -268,6 +305,8 @@ class LabManager:
     async def destroy(self) -> tuple[bool, str]:
         await asyncio.to_thread(self._force_cleanup_lab)
         self.deployed = False
+        self.deploying = False
+        self.deploy_error = ""
         self.deployed_nodes = {}
         self.mclag_status = ""
         self.mclag_leaf_configs = {}

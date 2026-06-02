@@ -26,6 +26,7 @@ RUN printf 'Acquire::Retries "5";\nAcquire::http::Timeout "30";\n' \
 ARG IMAGE
 COPY $IMAGE* /
 COPY *.py /
+RUN chmod +x /*.py
 
 EXPOSE 22 80 161/udp 443 830 5000 5678 8291 10000-10099
 HEALTHCHECK CMD ["/healthcheck.py"]

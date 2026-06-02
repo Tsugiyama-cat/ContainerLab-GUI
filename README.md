@@ -9,15 +9,25 @@
 
 ## 動作環境（必須要件）
 
-AOS-CX / vJunos などのノードは containerlab コンテナ内で **QEMU 仮想マシン**として起動します。  
+AOS-CX などのノードは containerlab コンテナ内で **QEMU 仮想マシン**として起動します。  
 そのため **CPU 仮想化支援（KVM）が使える Linux ホスト**が必須です。
 
 | 項目 | 要件 |
 |---|---|
 | OS | Linux（ベアメタル推奨。例: Ubuntu 22.04 / 24.04） |
 | CPU | x86_64 で Intel VT-x / AMD-V が有効。`/dev/kvm` が存在すること |
-| メモリ | AOS-CX は **1 ノードあたり 8GB / 4 vCPU**。`ノード数 × 8GB` 以上を確保 |
+| vCPU | AOS-CX は **1 ノードあたり 4 vCPU**（`launch.py` が `smp="4"`）。例: 4 ノード構成なら 16 vCPU 以上を推奨 |
+| メモリ | AOS-CX は **1 ノードあたり 8GB**。`ノード数 × 8GB` 以上を確保 |
 | Docker | privileged コンテナ実行と `/dev/kvm` へのアクセスが可能なこと |
+
+### 検証済みバージョン
+
+| ソフトウェア | バージョン |
+|---|---|
+| AOS-CX | **10.16.1006**（Virtual） |
+| containerlab | **0.74.3** |
+| Docker | 24.x 以降 |
+| Docker Compose | v2.24 以降（`env_file.required` を使用） |
 
 ### ✗ 動作しない環境
 
@@ -32,7 +42,7 @@ AOS-CX / vJunos などのノードは containerlab コンテナ内で **QEMU 仮
 | 環境 | 備考 |
 |---|---|
 | ベアメタル Linux（Ubuntu 等） | CPU 仮想化を BIOS/UEFI で有効化していること |
-| ネスト仮想化を有効化した VM 上の Linux | 例: **VMware ESXi**（「ハードウェア アシストによる仮想化をゲスト OS に公開」を有効化）、Proxmox（ゲスト CPU = `host`）、GCP（`--enable-nested-virtualization`） |
+| ネスト仮想化を有効化した VM 上の Linux | 例: **VMware ESXi** — VM 設定で「**ハードウェア アシストによる仮想化をゲスト OS に公開**」(Expose hardware-assisted virtualization to the guest OS) を **ON** にすること（OFF だと `/dev/kvm` が無く必ず失敗）。Proxmox（ゲスト CPU = `host`）、GCP（`--enable-nested-virtualization`） |
 | Windows + WSL2 + docker-ce | Docker Desktop ではなく、WSL2 のディストリ内に Docker Engine を直接導入。対応 CPU でネスト仮想化が有効なこと |
 
 ### KVM が使えるか確認
@@ -50,9 +60,7 @@ egrep -c '(vmx|svm)' /proc/cpuinfo  # 1 以上であること
 |---|---|
 | Aruba AOS-CX | `clabgui/aruba_arubaos-cx:10.16.1006` |
 
-> **Juniper vJunos-Switch について**  
-> ネスト仮想化の制約により VM 環境では動作しません。  
-> ベアメタル Linux / Intel Mac 環境向けに [`feature/vjunos`](https://github.com/Tsugiyama-cat/ContainerLab-GUI/tree/feature/vjunos) ブランチで提供しています。
+> **アプリ側はビルド済みのローカルイメージを自動検出します**。`make` で `:10.16.1006` 以外の日付タグが付いた場合でも、`backend/lab_manager.py` が起動時に `clabgui/aruba_arubaos-cx:*` を Docker から探し、見つかった最新タグを既定イメージにします。
 
 ---
 
@@ -61,8 +69,18 @@ egrep -c '(vmx|svm)' /proc/cpuinfo  # 1 以上であること
 ```bash
 git clone https://github.com/Tsugiyama-cat/ContainerLab-GUI.git
 cd ContainerLab-GUI
-cp .env.example .env
-# .env を編集して認証情報を設定
+
+# 1. AOS-CX の OVA を SWOS/aoscx/ に配置（OVA のまま OK。make が自動展開）
+#    例: cp ~/Downloads/ArubaOS-CX_10_16_1006.ova SWOS/aoscx/
+
+# 2. AOS-CX イメージをビルド
+cd SWOS/aoscx/docker && make && cd ../../..
+#    → clabgui/aruba_arubaos-cx:10.16.1006 が作成される
+
+# 3. (任意) 認証情報を変更したい場合のみ
+# cp .env.example .env  # .env はオプション。未配置でもデフォルト値で動作
+
+# 4. GUI を起動
 docker compose up -d
 ```
 
@@ -160,17 +178,28 @@ OVA / VMDK / OVF などのベンダーイメージはライセンスの関係上
 
 ### Aruba AOS-CX
 
-1. [HPE Networking Support Portal](https://networkingsupport.hpe.com/) からOVAをダウンロード
-2. `SWOS/aoscx/` に配置
-3. Dockerイメージをビルド:
+1. [HPE Networking Support Portal](https://networkingsupport.hpe.com/) から OVA をダウンロード
+2. `SWOS/aoscx/` に配置（**OVA のまま OK**、展開不要）
+3. Docker イメージをビルド:
 
 ```bash
 cd SWOS/aoscx/docker
 make
-# → clabgui/aruba_arubaos-cx:<バージョン> としてビルドされます
+# OVA を検出 → tar 自動展開 → vmdk からビルド → clabgui/aruba_arubaos-cx:10.16.1006 タグ付与
 ```
 
-> **注意:** これらのイメージファイル（`.ova` / `.vmdk` / `.ovf` / `.qcow2`）は `.gitignore` により Git 管理対象外です。ローカルにのみ保存してください。
+タグ末尾を明示したい場合：
+```bash
+make TAG_VERSION=10.16.1006
+```
+
+### vrnetlab スクリプトの出自
+
+`SWOS/aoscx/docker/vrnetlab.py` / `launch.py` は [hellt/vrnetlab](https://github.com/hellt/vrnetlab) の **tap+tc 版**を元にしています。  
+**この 2 ファイルは必ずペアでバージョンが一致している必要があります**（`launch.py` は `boot_delay()` / `cpu` / `smp` 引数など `vrnetlab.py` の tap+tc API に依存）。  
+古い socket 版に戻すとノード間リンクが無通信になるため、差し替えは両ファイル同時に行ってください。
+
+> **注意:** ベンダーイメージ（`.ova` / `.vmdk` / `.ovf` / `.qcow2`）は `.gitignore` により Git 管理対象外です。ローカルにのみ保存してください。
 
 ---
 
@@ -206,27 +235,25 @@ ContainerLab-GUI/
 │       └── main.js          # コンテキストメニュー / キーボード / init()
 │
 └── SWOS/                    # Switch OS ビルド環境
-    ├── aoscx/               # Aruba AOS-CX（main ブランチ）
-    │   ├── *.ova / *.vmdk / *.ovf   # ← gitignore（要手動配置）
-    │   └── docker/          # vrnetlab ベース Dockerfile / Makefile
-    │
-    └── Jnos/                # Juniper vJunos-Switch（feature/vjunos ブランチのみ）
-        ├── *.qcow2          # ← gitignore（要手動配置）
-        └── docker/          # vrnetlab ベース Dockerfile / Makefile
+    └── aoscx/               # Aruba AOS-CX
+        ├── *.ova / *.vmdk / *.ovf   # ← gitignore（要手動配置）
+        └── docker/          # vrnetlab (tap+tc 版) ベースの Dockerfile / Makefile
 ```
 
-> `SWOS/` 配下の OS イメージ（`.ova` / `.vmdk` / `.ovf` / `.qcow2`）はライセンス上 Git 管理対象外です。  
-> 各ベンダーのサポートポータルから取得してローカルに配置してください。
+> `SWOS/` 配下の OS イメージ（`.ova` / `.vmdk` / `.ovf`）はライセンス上 Git 管理対象外です。  
+> HPE Networking Support Portal から取得してローカルに配置してください。
 
 ---
 
 ## 環境変数
 
-`.env.example` をコピーして `.env` を作成してください。
+`.env` は **任意**です（無くてもデフォルト値で起動します）。デフォルトを変更したい場合のみ作成してください：
+
+```bash
+cp .env.example .env
+```
 
 | 変数名 | 説明 | デフォルト値 |
 |---|---|---|
 | `AOSCX_SSH_USER` | AOS-CX SSH ユーザー名 | `admin` |
 | `AOSCX_SSH_PASS` | AOS-CX SSH パスワード | `admin` |
-| `VJUNOS_SSH_USER` | vJunos SSH ユーザー名 | `admin` |
-| `VJUNOS_SSH_PASS` | vJunos SSH パスワード | `admin@123` |

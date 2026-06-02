@@ -7,6 +7,10 @@ services:
     # ContainerLab がホストのノードコンテナの /proc/<pid>/ns/net を
     # 参照できるようにホスト PID 名前空間を共有する
     pid: host
+    # .env が存在する場合のみ読み込む (AOSCX_SSH_USER/PASS など)
+    env_file:
+      - path: .env
+        required: false
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
       - /tmp/clabgui:/tmp/clabgui

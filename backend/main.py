@@ -21,6 +21,7 @@ app.mount("/static", StaticFiles(directory=str(FRONTEND)), name="static")
 lab = LabManager()
 _deploy_lock = asyncio.Lock()
 _mclag_task: asyncio.Task | None = None
+_deploy_task: asyncio.Task | None = None
 
 
 # ── SSH ヘルパー ──────────────────────────────────────────────
@@ -334,23 +335,42 @@ async def remove_link(link_id: str):
 
 # ── デプロイ/破棄 ─────────────────────────────────────────────
 
+async def _run_deploy():
+    """clab deploy をバックグラウンドで実行し、結果を lab の状態に反映する。
+    HTTP リクエストをブロックしないため、進捗・成否はフロントエンドが /api/status を
+    ポーリングして取得する。"""
+    global _mclag_task
+    try:
+        async with _deploy_lock:
+            success, output = await lab.deploy()
+        if success:
+            lab.deploy_error = ""
+            if lab.mclag_configs:
+                _mclag_task = asyncio.create_task(_vsx_mclag_background())
+        else:
+            lab.deploy_error = output
+    except Exception as e:
+        lab.deploy_error = str(e)
+    finally:
+        lab.deploying = False
+
+
 @app.post("/api/deploy")
 async def deploy():
-    global _mclag_task
-    if _deploy_lock.locked():
+    global _mclag_task, _deploy_task
+    if lab.deploying or _deploy_lock.locked():
         raise HTTPException(409, "デプロイが既に進行中です")
     if not lab.nodes:
         raise HTTPException(400, "ノードが1つも追加されていません")
     if _mclag_task and not _mclag_task.done():
         _mclag_task.cancel()
     lab.mclag_status = ""
-    async with _deploy_lock:
-        success, output = await lab.deploy()
-    if success and lab.mclag_configs:
-        _mclag_task = asyncio.create_task(_vsx_mclag_background())
+    lab.deploy_error = ""
+    lab.deploying = True
+    # デプロイは数十秒かかるためバックグラウンドで実行し、即座に応答する
+    _deploy_task = asyncio.create_task(_run_deploy())
     return {
-        "success": success,
-        "output": output,
+        "started": True,
         "node_count": len(lab.nodes),
         "link_count": len(lab.links),
     }
@@ -370,6 +390,8 @@ async def destroy():
 async def get_status():
     return {
         "deployed": lab.deployed,
+        "deploying": lab.deploying,
+        "deploy_error": lab.deploy_error,
         "deployed_nodes": lab.deployed_nodes,
         "has_pending_configs": bool(lab.startup_configs),
         "mclag_status": lab.mclag_status,
