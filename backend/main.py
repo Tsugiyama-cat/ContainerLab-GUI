@@ -41,6 +41,8 @@ def _ssh_open(info: dict, *, timeout: int = 15):
         password=info["ssh_pass"],
         known_hosts=None,
         connect_timeout=timeout,
+        preferred_auth="password",
+        client_keys=[],
     )
 
 
